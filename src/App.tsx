@@ -14,14 +14,29 @@ import { OrderPacking }   from './screens/OrderPacking'
 import { OrderImport }    from './screens/OrderImport'
 import { StockHistory }   from './screens/StockHistory'
 
-// Electron uses file:// protocol → use MemoryRouter; web dev uses BrowserRouter
-const Router = window.electronAPI ? MemoryRouter : BrowserRouter
+// ── Router detection ──────────────────────────────────────────────────────────
+// Do NOT rely on window.electronAPI — the preload might have failed.
+// navigator.userAgent always contains "Electron/X" when running inside Electron.
+// BrowserRouter with file:// protocol means no route ever matches → blank screen.
+const isElectron = typeof navigator !== 'undefined' &&
+  navigator.userAgent.includes('Electron')
+
+const Router = isElectron ? MemoryRouter : BrowserRouter
+
+console.log('[App] isElectron:', isElectron)
+console.log('[App] Router:', isElectron ? 'MemoryRouter' : 'BrowserRouter')
+console.log('[App] window.electronAPI:', typeof window.electronAPI)
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize)
 
+  console.log('[App] rendering, calling initialize on mount')
+
   useEffect(() => {
-    initialize()
+    console.log('[App] useEffect → initialize()')
+    initialize().catch((err) => {
+      console.error('[App] initialize() threw:', err)
+    })
   }, [initialize])
 
   return (

@@ -35,12 +35,15 @@ function createWindow() {
   console.log('[main] indexPath    :', indexPath)
   console.log('[main] devServerURL :', VITE_DEV_SERVER_URL ?? '(none)')
 
+  const iconPath = path.join(__dirname, '../resources/perfect-logo.png')
+
   mainWindow = new BrowserWindow({
     width:     1400,
     height:    860,
     minWidth:  1100,
     minHeight: 680,
     title:     'Perfect ELT Warehouse',
+    icon:      iconPath,
     backgroundColor: '#0f172a',
     show: false,
     webPreferences: {

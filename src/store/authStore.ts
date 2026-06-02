@@ -3,6 +3,12 @@ import { authApi } from '../api/auth'
 import { registerAuthAccessors } from '../api/client'
 import type { AuthUser } from '../types/auth'
 
+// Safe accessor — window.electronAPI is set by the preload script.
+// If the preload failed to load, this returns undefined gracefully.
+function eAPI() {
+  return window.electronAPI ?? null
+}
+
 interface AuthState {
   user: AuthUser | null
   token: string | null
@@ -23,25 +29,43 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     _setToken(token: string) {
       set({ token })
-      window.electronAPI.saveToken('access_token', token)
+      eAPI()?.saveToken('access_token', token)
     },
 
     async initialize() {
+      console.log('[authStore] initialize() called')
+      console.log('[authStore] window.electronAPI:', typeof window.electronAPI)
+
       set({ isLoading: true })
       try {
-        const token = await window.electronAPI.getToken('access_token')
+        const api = eAPI()
+        if (!api) {
+          console.warn('[authStore] window.electronAPI is undefined — preload may have failed')
+          set({ isLoading: false, isAuthenticated: false })
+          return
+        }
+
+        const token = await api.getToken('access_token')
+        console.log('[authStore] stored token found:', token !== null)
+
         if (!token) {
+          console.log('[authStore] no stored token → navigating to login')
           set({ isLoading: false })
           return
         }
+
         set({ token })
+        console.log('[authStore] validating token via /auth/me')
         const user = await authApi.getMe()
+        console.log('[authStore] /auth/me succeeded, user:', user.username)
         set({ user, isAuthenticated: true })
-      } catch {
-        await window.electronAPI.clearTokens()
+      } catch (err) {
+        console.error('[authStore] initialize() error:', err)
+        eAPI()?.clearTokens()
         set({ token: null, user: null, isAuthenticated: false })
       } finally {
         set({ isLoading: false })
+        console.log('[authStore] initialize() complete, isLoading → false')
       }
     },
 
@@ -50,7 +74,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         const response = await authApi.login(username, password)
         const { accessToken, ...user } = response
-        await window.electronAPI.saveToken('access_token', accessToken)
+        await eAPI()?.saveToken('access_token', accessToken)
         set({ token: accessToken, user: user as AuthUser, isAuthenticated: true })
       } finally {
         set({ isLoading: false })
@@ -63,7 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch {
         // Always clear local state even if server logout fails
       } finally {
-        await window.electronAPI.clearTokens()
+        await eAPI()?.clearTokens()
         set({ user: null, token: null, isAuthenticated: false })
       }
     },
