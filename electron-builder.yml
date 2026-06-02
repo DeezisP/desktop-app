@@ -1,0 +1,44 @@
+appId: com.perfectelt.warehouse
+productName: Perfect ELT Warehouse
+copyright: Copyright © 2024 Perfect ELT
+
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: resources/
+    to: .
+    filter:
+      - "*.png"
+      - "*.ico"
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Perfect ELT Warehouse
+  installerSidebar: resources/installer-sidebar.bmp
+  deleteAppDataOnUninstall: false
+  displayLanguageSelector: false
+
+publish:
+  provider: github
+  releaseType: draft
