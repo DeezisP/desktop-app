@@ -32,7 +32,7 @@ jobs:
         run: npx vite build
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://perfectelt.com/perfect/v1' }}
-          VITE_WS_URL:  ${{ secrets.VITE_WS_URL  || 'https://perfectelt.com/perfect/v1/ws' }}
+          VITE_WS_URL:  ${{ secrets.VITE_WS_URL  || 'https://perfectelt.com/perfect/v1/ws/websocket' }}
           VITE_STATION_ID: DESKTOP
 
       - name: Build Electron installer

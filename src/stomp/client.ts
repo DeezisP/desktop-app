@@ -2,7 +2,7 @@ import { Client, type StompSubscription, type IMessage } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
 import type { WarehouseQueueEvent } from '../types/warehouse'
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'https://perfectelt.com/perfect/v1/ws'
+const WS_URL = import.meta.env.VITE_WS_URL ?? 'https://perfectelt.com/perfect/v1/ws/websocket'
 const WAREHOUSE_QUEUE_TOPIC = '/topic/admin/warehouse/queue'
 
 type QueueEventHandler = (event: WarehouseQueueEvent) => void
