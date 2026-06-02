@@ -18,7 +18,11 @@ export function OrderPacking() {
   const [updatingStatus, setUpdatingStatus] = useState(false)
 
   useEffect(() => {
-    loadOrders({ importStatus: filterStatus === 'ALL' ? undefined : filterStatus })
+    if (filterStatus === 'ALL') {
+      loadOrders({})
+    } else {
+      loadOrders({ importStatus: filterStatus })
+    }
   }, [filterStatus, loadOrders])
 
   const selectOrder = useCallback(async (orderNumber: string) => {
@@ -35,7 +39,11 @@ export function OrderPacking() {
     setUpdatingStatus(true)
     try {
       await ordersApi.updateStatus(orderNumber, status)
-      await loadOrders({ importStatus: filterStatus === 'ALL' ? undefined : filterStatus })
+      if (filterStatus === 'ALL') {
+        await loadOrders({})
+      } else {
+        await loadOrders({ importStatus: filterStatus })
+      }
       if (selectedOrder?.orderNumber === orderNumber) {
         const refreshed = await ordersApi.getByOrderNumber(orderNumber)
         setSelectedOrder(refreshed)

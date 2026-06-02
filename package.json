@@ -1,6 +1,7 @@
 {
   "name": "perfect-elt-warehouse",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "description": "Perfect ELT Warehouse Desktop Application",
   "author": "Perfect ELT",

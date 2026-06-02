@@ -30,7 +30,7 @@ interface WarehouseState {
   loadQueue: (page?: number) => Promise<void>
   loadProducts: (page?: number, size?: number) => Promise<void>
   searchProducts: (q: string) => Promise<WarehouseProductResponse[]>
-  loadOrders: (params?: Record<string, string | number>) => Promise<void>
+  loadOrders: (params?: Record<string, string>) => Promise<void>
   loadImportHistory: () => Promise<void>
   applyQueueEvent: (event: WarehouseQueueEvent) => void
 }
@@ -71,10 +71,10 @@ export const useWarehouseStore = create<WarehouseState>((set, get) => ({
     return results
   },
 
-  async loadOrders(params = {}) {
+  async loadOrders(params: Record<string, string> = {}) {
     set({ ordersLoading: true })
     try {
-      const page_data = await ordersApi.list({ page: 0, size: 50, ...params })
+      const page_data = await ordersApi.list({ page: 0, size: 50, importStatus: params.importStatus, platform: params.platform })
       set({ orders: page_data.content, ordersTotal: page_data.totalElements })
     } finally {
       set({ ordersLoading: false })
