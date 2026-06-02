@@ -125,7 +125,10 @@ function buildMenu() {
 // ── Window creation ───────────────────────────────────────────────────────────
 
 function createWindow() {
-  const preloadPath = path.join(__dirname, 'preload.js')
+  // preload.mjs — Electron 28+ loads .mjs preloads via import() (not require()).
+  // vite-plugin-electron always outputs ESM when "type":"module" is set; the
+  // .mjs extension tells Electron to use its ESM preload loader.
+  const preloadPath = path.join(__dirname, 'preload.mjs')
   const indexPath   = path.join(__dirname, '../dist/index.html')
   const iconPath    = path.join(__dirname, '../resources/perfect-logo.png')
 

@@ -5,15 +5,11 @@ import renderer from 'vite-plugin-electron-renderer'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Vite may inject __dirname when loading the config, but we define it
-// explicitly here so the alias works regardless of how the config is loaded.
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
 
 export default defineConfig({
-  // base MUST be './' so that built HTML uses relative asset paths.
-  // Without this, Vite uses '/assets/...' which resolves to the filesystem
-  // root when loaded via file:// in Electron, causing blank screen.
+  // Relative paths required so file:// loading resolves ./assets/* correctly.
   base: './',
 
   resolve: {
@@ -24,7 +20,9 @@ export default defineConfig({
 
   plugins: [
     react(),
+
     electron([
+      // ── Main process (ESM — Electron 31 supports ESM main natively) ──────
       {
         entry: 'electron/main.ts',
         vite: {
@@ -36,6 +34,13 @@ export default defineConfig({
           },
         },
       },
+
+      // ── Preload (.mjs — Electron 28+ loads .mjs preloads as native ESM) ───
+      // With "type":"module", vite-plugin-electron always emits ESM output
+      // regardless of rollupOptions.output.format (empirically confirmed).
+      // Electron's require()-based preload loader rejects ESM .js files
+      // with ERR_REQUIRE_ESM. The fix: use .mjs extension so Electron uses
+      // its import()-based ESM preload loader instead of require().
       {
         entry: 'electron/preload.ts',
         onstart(options) {
@@ -46,11 +51,15 @@ export default defineConfig({
             outDir: 'dist-electron',
             rollupOptions: {
               external: ['electron'],
+              output: {
+                entryFileNames: '[name].mjs',
+              },
             },
           },
         },
       },
     ]),
+
     renderer(),
   ],
 })
