@@ -247,7 +247,7 @@ function createWindow() {
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 
-const ALLOWED_KEYS = new Set(['access_token'])
+const ALLOWED_KEYS = new Set(['access_token', 'device_token'])
 
 ipcMain.handle('token:save', (_ev, key: string, value: string): boolean => {
   if (!ALLOWED_KEYS.has(key)) return false

@@ -3,29 +3,61 @@ import { authApi } from '../api/auth'
 import { registerAuthAccessors } from '../api/client'
 import type { AuthUser } from '../types/auth'
 
-// Safe accessor — window.electronAPI is set by the preload script.
-// If the preload failed to load, this returns undefined gracefully.
 function eAPI() {
   return window.electronAPI ?? null
 }
 
+// ── Stable per-installation device token ─────────────────────────────────────
+// Generated once, stored encrypted via safeStorage.
+// Using a stable UUID ensures the device is only verified once per machine.
+
+async function getOrCreateDeviceToken(): Promise<string> {
+  const api = eAPI()
+  if (!api) {
+    // Preload unavailable — use a session-only identifier
+    return 'DESKTOP-UNKNOWN'
+  }
+  let token = await api.getToken('device_token')
+  if (!token) {
+    // crypto.randomUUID() is available in Electron's Chromium renderer
+    token = crypto.randomUUID()
+    await api.saveToken('device_token', token)
+    console.log('[authStore] generated new device token')
+  }
+  return token
+}
+
+// ── State shape ───────────────────────────────────────────────────────────────
+
+export interface PendingOtp {
+  username:    string
+  deviceToken: string
+  maskedEmail: string
+}
+
 interface AuthState {
-  user: AuthUser | null
-  token: string | null
-  isLoading: boolean
+  user:            AuthUser | null
+  token:           string | null
+  isLoading:       boolean
   isAuthenticated: boolean
-  initialize: () => Promise<void>
-  login: (username: string, password: string) => Promise<void>
-  logout: () => Promise<void>
-  _setToken: (token: string) => void
+  pendingOtp:      PendingOtp | null
+
+  initialize:      () => Promise<void>
+  login:           (username: string, password: string) => Promise<void>
+  verifyOtp:       (otp: string) => Promise<void>
+  resendOtp:       () => Promise<void>
+  cancelOtp:       () => void
+  logout:          () => Promise<void>
+  _setToken:       (token: string) => void
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
   const store: AuthState = {
-    user: null,
-    token: null,
-    isLoading: true,
+    user:            null,
+    token:           null,
+    isLoading:       true,
     isAuthenticated: false,
+    pendingOtp:      null,
 
     _setToken(token: string) {
       set({ token })
@@ -33,47 +65,51 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     async initialize() {
-      console.log('[authStore] initialize() called')
-      console.log('[authStore] window.electronAPI:', typeof window.electronAPI)
-
+      console.log('[authStore] initialize()')
       set({ isLoading: true })
       try {
         const api = eAPI()
         if (!api) {
-          console.warn('[authStore] window.electronAPI is undefined — preload may have failed')
+          console.warn('[authStore] electronAPI unavailable')
           set({ isLoading: false, isAuthenticated: false })
           return
         }
-
         const token = await api.getToken('access_token')
-        console.log('[authStore] stored token found:', token !== null)
-
         if (!token) {
-          console.log('[authStore] no stored token → navigating to login')
           set({ isLoading: false })
           return
         }
-
         set({ token })
-        console.log('[authStore] validating token via /auth/me')
         const user = await authApi.getMe()
-        console.log('[authStore] /auth/me succeeded, user:', user.username)
+        console.log('[authStore] session restored for', user.username)
         set({ user, isAuthenticated: true })
       } catch (err) {
-        console.error('[authStore] initialize() error:', err)
+        console.error('[authStore] initialize error:', err)
         eAPI()?.clearTokens()
         set({ token: null, user: null, isAuthenticated: false })
       } finally {
         set({ isLoading: false })
-        console.log('[authStore] initialize() complete, isLoading → false')
       }
     },
 
     async login(username: string, password: string) {
-      set({ isLoading: true })
+      set({ isLoading: true, pendingOtp: null })
       try {
-        const response = await authApi.login(username, password)
-        const { accessToken, ...user } = response
+        const deviceToken = await getOrCreateDeviceToken()
+        const result = await authApi.login(username, password, deviceToken)
+
+        if ('requiresDeviceVerification' in result && result.requiresDeviceVerification) {
+          // Server sent OTP to the user's email — show OTP step
+          console.log('[authStore] device OTP required, masked email:', result.maskedEmail)
+          set({
+            pendingOtp: { username, deviceToken, maskedEmail: result.maskedEmail },
+          })
+          return
+        }
+
+        // Trusted device — full login response (narrowed past the guard above)
+        const loginResp = result as import('../types/auth').LoginResponse
+        const { accessToken, ...user } = loginResp
         await eAPI()?.saveToken('access_token', accessToken)
         set({ token: accessToken, user: user as AuthUser, isAuthenticated: true })
       } finally {
@@ -81,19 +117,54 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
+    async verifyOtp(otp: string) {
+      const { pendingOtp } = get()
+      if (!pendingOtp) throw new Error('No pending OTP state')
+
+      set({ isLoading: true })
+      try {
+        const result = await authApi.verifyDeviceOtp(
+          pendingOtp.username,
+          otp.trim(),
+          pendingOtp.deviceToken,
+        )
+        const { accessToken, ...user } = result
+        await eAPI()?.saveToken('access_token', accessToken)
+        set({
+          token:           accessToken,
+          user:            user as AuthUser,
+          isAuthenticated: true,
+          pendingOtp:      null,
+        })
+        console.log('[authStore] device OTP verified, logged in as', user.username)
+      } finally {
+        set({ isLoading: false })
+      }
+    },
+
+    async resendOtp() {
+      const { pendingOtp } = get()
+      if (!pendingOtp) return
+      await authApi.resendDeviceOtp(pendingOtp.username, pendingOtp.deviceToken)
+      console.log('[authStore] OTP resent')
+    },
+
+    cancelOtp() {
+      set({ pendingOtp: null })
+    },
+
     async logout() {
       try {
         await authApi.logout()
       } catch {
-        // Always clear local state even if server logout fails
+        // Always clear local state even if server call fails
       } finally {
         await eAPI()?.clearTokens()
-        set({ user: null, token: null, isAuthenticated: false })
+        set({ user: null, token: null, isAuthenticated: false, pendingOtp: null })
       }
     },
   }
 
-  // Wire client interceptors to this store (avoids circular import)
   registerAuthAccessors(
     () => get().token,
     (t) => get()._setToken(t),

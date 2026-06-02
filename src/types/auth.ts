@@ -33,6 +33,14 @@ export interface LoginResponse extends AuthUser {
   accessToken: string
 }
 
+/** Returned when the device is not yet trusted — OTP sent to email */
+export interface DeviceOtpRequired {
+  requiresDeviceVerification: true
+  maskedEmail: string
+}
+
+export type LoginApiResult = LoginResponse | DeviceOtpRequired
+
 export interface RefreshResponse {
   token: string
 }
