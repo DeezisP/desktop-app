@@ -2,10 +2,12 @@ node_modules/
 dist/
 dist-electron/
 release/
-resources/*.ico
-resources/*.png
-resources/*.icns
-resources/installer-sidebar.bmp
+# Generated icon artifacts (rebuilt by npm run setup:icons)
+resources/icon.ico
+resources/icon.png
+resources/icon.icns
+# Source logo is committed — it is the authoritative brand asset
+# resources/perfect-logo.png  ← intentionally tracked
 .env
 .env.local
 *.log

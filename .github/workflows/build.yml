@@ -28,8 +28,8 @@ jobs:
       - name: Generate application icons
         run: node scripts/generate-icon.js
 
-      - name: Build React renderer
-        run: npx vite build
+      - name: Build React renderer + Electron entry points
+        run: npm run build
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://perfectelt.com/perfect/v1' }}
           VITE_WS_URL:  ${{ secrets.VITE_WS_URL  || 'https://perfectelt.com/perfect/v1/ws/websocket' }}

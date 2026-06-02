@@ -130,7 +130,14 @@ function createWindow() {
   // .mjs extension tells Electron to use its ESM preload loader.
   const preloadPath = path.join(__dirname, 'preload.mjs')
   const indexPath   = path.join(__dirname, '../dist/index.html')
-  const iconPath    = path.join(__dirname, '../resources/perfect-logo.png')
+  // Use icon.ico on Windows — it contains all required sizes so the shell
+  // picks the right one for taskbar, Alt+Tab, and title bar.
+  // perfect-logo.png is the source; icon.ico is generated from it.
+  const iconPath = path.join(
+    __dirname,
+    '../resources',
+    process.platform === 'win32' ? 'icon.ico' : 'perfect-logo.png',
+  )
 
   log('[main] __dirname    : ' + __dirname)
   log('[main] preloadPath  : ' + preloadPath)
