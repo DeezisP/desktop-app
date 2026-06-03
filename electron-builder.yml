@@ -20,6 +20,11 @@ extraResources:
 
 # ── Windows build ─────────────────────────────────────────────────────────────
 
+protocols:
+  - name: Perfect Electronic
+    schemes:
+      - perfectelt
+
 win:
   icon: resources/icon.ico
 

@@ -390,115 +390,112 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   } catch (e) { log(`[main] notify:show error: ${e}`) }
 })
 
-// ── Google OAuth IPC ──────────────────────────────────────────────────────────
+// ── Google OAuth — external browser + custom deep link ───────────────────────
+//
+// Flow:
+//  1. shell.openExternal → user's default browser opens Google OAuth
+//  2. Backend /auth/google-success detects state=ELECTRON_DESKTOP, issues a
+//     short-lived exchange token, redirects to perfectelt://oauth?et=<token>
+//  3. OS launches this app (or notifies the running instance) with the URL
+//  4. handleGoogleDeepLink() redeems the token via /auth/google-desktop-redeem
+//     which sets the HttpOnly refreshToken cookie in the Electron session AND
+//     returns the access token
+//  5. IPC promise resolves with { success: true, accessToken }
 
 export type GoogleLoginResult =
   | { success: true;  accessToken: string }
   | { success: false; error: string }
 
-const GOOGLE_CLIENT_ID  = '970539775014-pdsiuqc987ses2n4o00e48geb2d2uikg.apps.googleusercontent.com'
-const GOOGLE_REDIRECT   = 'https://www.perfectelt.com/perfect/v1/auth/google-success'
-const GOOGLE_AUTH_URL   = 'https://accounts.google.com/o/oauth2/v2/auth'
+const GOOGLE_CLIENT_ID = '970539775014-pdsiuqc987ses2n4o00e48geb2d2uikg.apps.googleusercontent.com'
+const GOOGLE_REDIRECT  = 'https://www.perfectelt.com/perfect/v1/auth/google-success'
+const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth'
+const REDEEM_URL       = 'https://perfectelt.com/perfect/v1/auth/google-desktop-redeem'
 
-ipcMain.handle('auth:google', async (): Promise<GoogleLoginResult> => {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id:     GOOGLE_CLIENT_ID,
-    redirect_uri:  GOOGLE_REDIRECT,
-    scope:         'openid email profile',
-    access_type:   'offline',
-    prompt:        'select_account',
-  })
+let pendingGoogleResolve: ((r: GoogleLoginResult) => void) | null = null
+let googleLoginTimeout: ReturnType<typeof setTimeout> | null      = null
 
+async function handleGoogleDeepLink(url: string) {
+  if (!pendingGoogleResolve) return
   try {
-    // ── Step 1: open popup and wait for OAuth completion ──────────────────
-    const oauthResult = await new Promise<{ host: string } | { error: string }>((resolve) => {
-      const popup = new BrowserWindow({
-        width:  520,
-        height: 660,
-        parent: mainWindow ?? undefined,
-        modal:  false,
-        title:  'Sign in with Google',
-        autoHideMenuBar: true,
-        webPreferences: {
-          nodeIntegration:  false,
-          contextIsolation: true,
-          sandbox:          false,
-        },
-      })
+    const parsed = new URL(url)
+    const et    = parsed.searchParams.get('et')
+    const error = parsed.searchParams.get('error')
 
-      let settled = false
-      const settle = (v: { host: string } | { error: string }) => {
-        if (settled) return
-        settled = true
-        if (!popup.isDestroyed()) popup.destroy()
-        resolve(v)
-      }
+    if (error || !et) {
+      const resolve = pendingGoogleResolve
+      pendingGoogleResolve = null
+      if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+      resolve({ success: false, error: error ?? 'google_failed' })
+      return
+    }
 
-      const checkUrl = (url: string) => {
-        try {
-          const { hostname, pathname, searchParams } = new URL(url)
-          if (!hostname.endsWith('perfectelt.com')) return
-          // Still processing through the backend auth endpoint — keep waiting
-          if (pathname.startsWith('/perfect/v1/auth/google')) return
-          if (searchParams.has('error') || pathname.includes('/login')) {
-            settle({ error: searchParams.get('error') ?? 'google_failed' })
-          } else {
-            settle({ host: hostname })
-          }
-        } catch {}
-      }
-
-      popup.webContents.on('did-navigate',  (_e, url) => checkUrl(url))
-      popup.webContents.on('will-redirect', (_e, url) => { if (url.includes('perfectelt.com')) checkUrl(url) })
-      popup.on('closed', () => settle({ error: 'cancelled' }))
-      popup.loadURL(`${GOOGLE_AUTH_URL}?${params}`)
+    log(`[google-auth] deep link received, redeeming et=${et.slice(0, 8)}…`)
+    const resp = await net.fetch(REDEEM_URL, {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
+      credentials: 'include',
+      body:        JSON.stringify({ et }),
     })
 
-    if ('error' in oauthResult) {
-      return { success: false, error: oauthResult.error }
+    const resolve = pendingGoogleResolve
+    pendingGoogleResolve = null
+    if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+
+    if (!resp.ok) {
+      log(`[google-auth] redeem HTTP ${resp.status}`)
+      resolve({ success: false, error: 'redeem_failed' })
+      return
     }
 
-    // ── Step 2: read the HttpOnly refreshToken cookie from the session ────
-    const cookieUrl = `https://${oauthResult.host}`
-    let cookies = await session.defaultSession.cookies.get({ name: 'refreshToken', url: cookieUrl })
+    const data = await resp.json() as { token?: string }
+    if (!data.token) { resolve({ success: false, error: 'no_access_token' }); return }
 
-    if (!cookies.length) {
-      await new Promise(r => setTimeout(r, 400))
-      cookies = await session.defaultSession.cookies.get({ name: 'refreshToken', url: cookieUrl })
-    }
-    if (!cookies.length) {
-      log('[google-auth] refreshToken cookie not found after OAuth')
-      return { success: false, error: 'session_missing' }
-    }
-
-    // ── Step 3: exchange refresh token for access token via /auth/refresh ─
-    const refreshResp = await net.fetch(`${cookieUrl}/perfect/v1/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie':        `refreshToken=${cookies[0].value}`,
-        'Origin':        cookieUrl,
-      },
-      body: '{}',
-    })
-
-    if (!refreshResp.ok) {
-      log(`[google-auth] refresh HTTP ${refreshResp.status}`)
-      return { success: false, error: 'refresh_failed' }
-    }
-
-    const refreshData = await refreshResp.json() as { token?: string }
-    const accessToken = refreshData.token
-    if (!accessToken) return { success: false, error: 'no_access_token' }
-
-    log('[google-auth] OAuth complete — access token obtained')
-    return { success: true, accessToken }
-
+    log('[google-auth] deep link redeemed — access token obtained')
+    resolve({ success: true, accessToken: data.token })
   } catch (err) {
-    log(`[google-auth] error: ${err instanceof Error ? err.message : String(err)}`)
-    return { success: false, error: String(err) }
+    const resolve = pendingGoogleResolve
+    pendingGoogleResolve = null
+    if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+    resolve?.({ success: false, error: err instanceof Error ? err.message : String(err) })
   }
+}
+
+ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
+  // Cancel any in-flight login
+  if (pendingGoogleResolve) {
+    pendingGoogleResolve({ success: false, error: 'cancelled' })
+    pendingGoogleResolve = null
+  }
+  if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+
+  return new Promise((resolve) => {
+    pendingGoogleResolve = resolve
+
+    // 5-minute timeout
+    googleLoginTimeout = setTimeout(() => {
+      if (pendingGoogleResolve === resolve) {
+        pendingGoogleResolve = null
+        resolve({ success: false, error: 'timeout' })
+      }
+    }, 5 * 60 * 1000)
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id:     GOOGLE_CLIENT_ID,
+      redirect_uri:  GOOGLE_REDIRECT,
+      scope:         'openid email profile',
+      access_type:   'offline',
+      prompt:        'select_account',
+      state:         'ELECTRON_DESKTOP',
+    })
+
+    shell.openExternal(`${GOOGLE_AUTH_URL}?${params}`)
+      .catch((err) => {
+        pendingGoogleResolve = null
+        if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+        resolve({ success: false, error: `open_failed: ${err.message}` })
+      })
+  })
 })
 
 // ── Auto-update IPC ───────────────────────────────────────────────────────────
@@ -521,11 +518,42 @@ ipcMain.handle('update:install', (): void => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+// Register the perfectelt:// custom URI scheme so the OS can route OAuth
+// deep links back to this app after the user signs in via their browser.
+app.setAsDefaultProtocolClient('perfectelt')
+
+// Enforce single instance so deep links from a second launch are forwarded
+// to the already-running instance via the second-instance event.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+}
+
+// Windows: second instance started with the deep link URL as a CLI arg
+app.on('second-instance', (_ev, commandLine) => {
+  const url = commandLine.find(a => a.startsWith('perfectelt://'))
+  if (url) handleGoogleDeepLink(url)
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
+
+// macOS: OS sends the URL directly via open-url event
+app.on('open-url', (ev, url) => {
+  ev.preventDefault()
+  handleGoogleDeepLink(url)
+})
+
 app.whenReady().then(() => {
   initLogFile()
   setupAutoUpdater()
   buildMenu()
   createWindow()
+
+  // Handle deep link on cold launch (Windows passes URL as process.argv entry)
+  const coldUrl = process.argv.find(a => a.startsWith('perfectelt://'))
+  if (coldUrl) handleGoogleDeepLink(coldUrl)
 }).catch((err) => {
   log(`[main] app.whenReady failed: ${err?.message}\n${err?.stack ?? ''}`)
 })
