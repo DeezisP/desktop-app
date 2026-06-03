@@ -390,17 +390,19 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   } catch (e) { log(`[main] notify:show error: ${e}`) }
 })
 
-// ── Google OAuth — external browser + custom deep link ───────────────────────
+// ── Google OAuth — external browser + polling ─────────────────────────────────
 //
 // Flow:
-//  1. shell.openExternal → user's default browser opens Google OAuth
-//  2. Backend /auth/google-success detects state=ELECTRON_DESKTOP, issues a
-//     short-lived exchange token, redirects to perfectelt://oauth?et=<token>
-//  3. OS launches this app (or notifies the running instance) with the URL
-//  4. handleGoogleDeepLink() redeems the token via /auth/google-desktop-redeem
-//     which sets the HttpOnly refreshToken cookie in the Electron session AND
-//     returns the access token
-//  5. IPC promise resolves with { success: true, accessToken }
+//  1. Generate nonce = "ELECTRON_<uuid>"
+//  2. shell.openExternal → user's default browser opens Google OAuth with state=nonce
+//  3. Backend /auth/google-success detects state starts with "ELECTRON_", stores
+//     userId keyed by nonce, serves a "you can close this tab" HTML page
+//  4. This process polls /auth/google-desktop-redeem every 2 s with { nonce }
+//     — backend returns { pending:true } until OAuth completes, then { token }
+//  5. On token receipt: net.fetch (credentials:include) stores the refreshToken
+//     cookie in Electron's session; IPC resolves with { success:true, accessToken }
+//
+// No custom protocol registration or reinstall needed.
 
 export type GoogleLoginResult =
   | { success: true;  accessToken: string }
@@ -411,73 +413,20 @@ const GOOGLE_REDIRECT  = 'https://www.perfectelt.com/perfect/v1/auth/google-succ
 const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth'
 const REDEEM_URL       = 'https://perfectelt.com/perfect/v1/auth/google-desktop-redeem'
 
-let pendingGoogleResolve: ((r: GoogleLoginResult) => void) | null = null
-let googleLoginTimeout: ReturnType<typeof setTimeout> | null      = null
+let googlePollInterval: ReturnType<typeof setInterval> | null = null
+let googlePollTimeout:  ReturnType<typeof setTimeout>  | null = null
 
-async function handleGoogleDeepLink(url: string) {
-  if (!pendingGoogleResolve) return
-  try {
-    const parsed = new URL(url)
-    const et    = parsed.searchParams.get('et')
-    const error = parsed.searchParams.get('error')
-
-    if (error || !et) {
-      const resolve = pendingGoogleResolve
-      pendingGoogleResolve = null
-      if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
-      resolve({ success: false, error: error ?? 'google_failed' })
-      return
-    }
-
-    log(`[google-auth] deep link received, redeeming et=${et.slice(0, 8)}…`)
-    const resp = await net.fetch(REDEEM_URL, {
-      method:      'POST',
-      headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
-      credentials: 'include',
-      body:        JSON.stringify({ et }),
-    })
-
-    const resolve = pendingGoogleResolve
-    pendingGoogleResolve = null
-    if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
-
-    if (!resp.ok) {
-      log(`[google-auth] redeem HTTP ${resp.status}`)
-      resolve({ success: false, error: 'redeem_failed' })
-      return
-    }
-
-    const data = await resp.json() as { token?: string }
-    if (!data.token) { resolve({ success: false, error: 'no_access_token' }); return }
-
-    log('[google-auth] deep link redeemed — access token obtained')
-    resolve({ success: true, accessToken: data.token })
-  } catch (err) {
-    const resolve = pendingGoogleResolve
-    pendingGoogleResolve = null
-    if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
-    resolve?.({ success: false, error: err instanceof Error ? err.message : String(err) })
-  }
+function stopGooglePoll() {
+  if (googlePollInterval) { clearInterval(googlePollInterval); googlePollInterval = null }
+  if (googlePollTimeout)  { clearTimeout(googlePollTimeout);   googlePollTimeout  = null }
 }
 
 ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
-  // Cancel any in-flight login
-  if (pendingGoogleResolve) {
-    pendingGoogleResolve({ success: false, error: 'cancelled' })
-    pendingGoogleResolve = null
-  }
-  if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
+  stopGooglePoll()
 
   return new Promise((resolve) => {
-    pendingGoogleResolve = resolve
-
-    // 5-minute timeout
-    googleLoginTimeout = setTimeout(() => {
-      if (pendingGoogleResolve === resolve) {
-        pendingGoogleResolve = null
-        resolve({ success: false, error: 'timeout' })
-      }
-    }, 5 * 60 * 1000)
+    // Unique nonce so only this login attempt can match the backend entry
+    const nonce = `ELECTRON_${crypto.randomUUID()}`
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -486,15 +435,55 @@ ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
       scope:         'openid email profile',
       access_type:   'offline',
       prompt:        'select_account',
-      state:         'ELECTRON_DESKTOP',
+      state:         nonce,
     })
 
     shell.openExternal(`${GOOGLE_AUTH_URL}?${params}`)
       .catch((err) => {
-        pendingGoogleResolve = null
-        if (googleLoginTimeout) { clearTimeout(googleLoginTimeout); googleLoginTimeout = null }
         resolve({ success: false, error: `open_failed: ${err.message}` })
+        return
       })
+
+    // Poll every 2 s — backend returns { pending:true } until OAuth completes
+    googlePollInterval = setInterval(async () => {
+      try {
+        const resp = await net.fetch(REDEEM_URL, {
+          method:      'POST',
+          headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
+          credentials: 'include',
+          body:        JSON.stringify({ nonce }),
+        })
+
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({})) as { error?: string }
+          if (data.error === 'expired') {
+            stopGooglePoll()
+            resolve({ success: false, error: 'expired' })
+          }
+          // Other errors: keep polling (transient network issues)
+          return
+        }
+
+        const data = await resp.json() as { pending?: boolean; token?: string }
+        if (data.pending) return   // OAuth not complete yet — keep polling
+
+        stopGooglePoll()
+        if (!data.token) {
+          resolve({ success: false, error: 'no_access_token' })
+          return
+        }
+        log('[google-auth] poll complete — access token obtained')
+        resolve({ success: true, accessToken: data.token })
+      } catch {
+        // Network error during poll — keep trying
+      }
+    }, 2000)
+
+    // 5-minute overall timeout
+    googlePollTimeout = setTimeout(() => {
+      stopGooglePoll()
+      resolve({ success: false, error: 'timeout' })
+    }, 5 * 60 * 1000)
   })
 })
 
@@ -518,31 +507,15 @@ ipcMain.handle('update:install', (): void => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
-// Register the perfectelt:// custom URI scheme so the OS can route OAuth
-// deep links back to this app after the user signs in via their browser.
-app.setAsDefaultProtocolClient('perfectelt')
-
-// Enforce single instance so deep links from a second launch are forwarded
-// to the already-running instance via the second-instance event.
+// Single-instance lock: if a second instance starts, focus the existing window.
 const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
-  app.quit()
-}
+if (!gotLock) app.quit()
 
-// Windows: second instance started with the deep link URL as a CLI arg
-app.on('second-instance', (_ev, commandLine) => {
-  const url = commandLine.find(a => a.startsWith('perfectelt://'))
-  if (url) handleGoogleDeepLink(url)
+app.on('second-instance', () => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
   }
-})
-
-// macOS: OS sends the URL directly via open-url event
-app.on('open-url', (ev, url) => {
-  ev.preventDefault()
-  handleGoogleDeepLink(url)
 })
 
 app.whenReady().then(() => {
@@ -550,10 +523,6 @@ app.whenReady().then(() => {
   setupAutoUpdater()
   buildMenu()
   createWindow()
-
-  // Handle deep link on cold launch (Windows passes URL as process.argv entry)
-  const coldUrl = process.argv.find(a => a.startsWith('perfectelt://'))
-  if (coldUrl) handleGoogleDeepLink(coldUrl)
 }).catch((err) => {
   log(`[main] app.whenReady failed: ${err?.message}\n${err?.stack ?? ''}`)
 })

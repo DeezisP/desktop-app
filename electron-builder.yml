@@ -64,6 +64,10 @@ win:
 # ── NSIS installer ────────────────────────────────────────────────────────────
 
 nsis:
+  # Explicit artifact name with dots — prevents the space→hyphen mismatch
+  # between latest.yml and the GitHub-normalized download URL (space→dot).
+  # Both the .exe and latest.yml path must be identical for auto-updater.
+  artifactName: Perfect.Electronic.Setup.${version}.${ext}
   oneClick: false
   perMachine: false
   allowElevation: true
