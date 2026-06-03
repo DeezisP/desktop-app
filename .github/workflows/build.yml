@@ -8,6 +8,13 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Grant the GITHUB_TOKEN write access to repository contents so the release
+# step can create GitHub Releases and upload assets (exe + latest.yml).
+# Without this, softprops/action-gh-release@v2 fails with:
+#   403 Resource not accessible by integration
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -60,9 +67,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          # Both files are required for electron-updater to work:
-          #   *.exe       — the actual installer end-users download
-          #   latest.yml  — version manifest electron-updater fetches to detect updates
+          # Both files are required for electron-updater auto-update to work:
+          #   *.exe       — NSIS installer end-users download on first install or manual update
+          #   latest.yml  — version manifest electron-updater fetches to detect new releases
           files: |
             release/*.exe
             release/latest.yml
