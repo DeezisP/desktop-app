@@ -81,7 +81,7 @@ process.on('unhandledRejection', (reason: unknown) => {
 // State machine: idle → checking → available | not-available | error
 //                available → downloading → downloaded → (user clicks install)
 //
-// Security: GITHUB_UPDATER_TOKEN is read only in the main process and is
+// Security: UPDATER_TOKEN is read only in the main process and is
 // NEVER forwarded to the renderer, preload, contextBridge, or any IPC reply.
 
 export type UpdateStatus =
@@ -127,7 +127,7 @@ function friendlyUpdateError(err: Error | unknown): string {
 
 function setupAutoUpdater() {
   // ── Diagnostics — log config, never log token value ─────────────────────
-  const updaterToken = process.env['GITHUB_UPDATER_TOKEN']
+  const updaterToken = process.env['UPDATER_TOKEN']
   const tokenPresent = Boolean(updaterToken && updaterToken.trim().length > 0)
 
   log('[updater] provider=github')
@@ -138,12 +138,12 @@ function setupAutoUpdater() {
 
   // ── Token guard ──────────────────────────────────────────────────────────
   if (!tokenPresent) {
-    log('[updater] WARN: GITHUB_UPDATER_TOKEN is not set — update checks disabled')
-    log('[updater] Set GITHUB_UPDATER_TOKEN in the system environment to enable updates')
+    log('[updater] WARN: UPDATER_TOKEN is not set — update checks disabled')
+    log('[updater] Set UPDATER_TOKEN in the system environment to enable updates')
     // Send an error state so the Settings UI shows a clear message, not a spinner
     sendUpdateStatus({
       state:   'error',
-      message: 'GitHub updater token missing — set GITHUB_UPDATER_TOKEN to enable updates',
+      message: 'GitHub updater token missing — set UPDATER_TOKEN to enable updates',
     })
     updaterReady = false
     return
@@ -243,7 +243,7 @@ function buildMenu() {
               return
             }
             if (!updaterReady) {
-              sendUpdateStatus({ state: 'error', message: 'Updater not configured — GITHUB_UPDATER_TOKEN missing.' })
+              sendUpdateStatus({ state: 'error', message: 'Updater not configured — UPDATER_TOKEN missing.' })
               return
             }
             sendUpdateStatus({ state: 'checking' })
@@ -451,7 +451,7 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
 })
 
 // ── Auto-update IPC ───────────────────────────────────────────────────────────
-// SECURITY: GITHUB_UPDATER_TOKEN is NEVER sent via IPC to the renderer.
+// SECURITY: UPDATER_TOKEN is NEVER sent via IPC to the renderer.
 // These handlers only trigger actions in the main process.
 
 ipcMain.handle('update:check', (): void => {
@@ -460,7 +460,7 @@ ipcMain.handle('update:check', (): void => {
     return
   }
   if (!updaterReady) {
-    sendUpdateStatus({ state: 'error', message: 'Updater not configured — GITHUB_UPDATER_TOKEN missing.' })
+    sendUpdateStatus({ state: 'error', message: 'Updater not configured — UPDATER_TOKEN missing.' })
     return
   }
   sendUpdateStatus({ state: 'checking' })
