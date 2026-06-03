@@ -9,7 +9,8 @@ type SortDir = 'asc' | 'desc'
 export function StockHistory() {
   const [products, setProducts] = useState<WarehouseProductResponse[]>([])
   const [loading, setLoading]   = useState(false)
-  const [query, setQuery]       = useState('')
+  const [query, setQuery]         = useState('')
+  const [appliedQuery, setAppliedQuery] = useState('')
   const [searched, setSearched] = useState(false)
   const [sortKey, setSortKey]   = useState<SortKey>('updatedAt')
   const [sortDir, setSortDir]   = useState<SortDir>('desc')
@@ -17,6 +18,7 @@ export function StockHistory() {
 
   async function handleSearch(e?: FormEvent) {
     e?.preventDefault()
+    setAppliedQuery(query)
     setLoading(true)
     setSearched(true)
     try {
@@ -40,7 +42,7 @@ export function StockHistory() {
   const filtered = useMemo(() =>
     products
       .filter((p) => {
-        if (query && !p.title.toLowerCase().includes(query.toLowerCase())) return false
+        if (appliedQuery && !p.title.toLowerCase().includes(appliedQuery.toLowerCase())) return false
         if (showLow && p.availableStock > 5) return false
         return true
       })
@@ -54,7 +56,7 @@ export function StockHistory() {
         if (av > bv) return sortDir === 'asc' ? 1 : -1
         return 0
       }),
-  [products, query, showLow, sortKey, sortDir])
+  [products, appliedQuery, showLow, sortKey, sortDir])
 
   const lowStockCount = useMemo(() => products.filter((p) => p.availableStock <= 5).length, [products])
 

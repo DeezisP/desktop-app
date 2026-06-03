@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import perfectLogo from '../../resources/perfect-logo.png'
 
 export function Login() {
   const isAuthenticated  = useAuthStore((s) => s.isAuthenticated)
@@ -86,9 +87,11 @@ function CredentialsStep({
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-2xl font-bold text-white shadow-lg">
-            W
-          </div>
+          <img
+            src={perfectLogo}
+            alt="Perfect Electronic"
+            className="mx-auto mb-4 h-16 w-16 rounded-2xl object-contain shadow-lg"
+          />
           <h1 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">Perfect Electronic</h1>
           <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">เข้าสู่ระบบเพื่อดำเนินการต่อ</p>
         </div>

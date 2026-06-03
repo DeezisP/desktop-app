@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { productsApi } from '../api/warehouse'
 import type { WarehouseProductResponse } from '../types/warehouse'
 
@@ -12,8 +12,7 @@ export function StockCount() {
   const [rows, setRows]       = useState<CountRow[]>([])
   const [loading, setLoading] = useState(false)
   const [filter, setFilter]             = useState('')
-  const [debouncedFilter, setDebouncedFilter] = useState('')
-  const filterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [appliedFilter, setAppliedFilter] = useState('')
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
@@ -71,9 +70,9 @@ export function StockCount() {
 
   const filtered = useMemo(
     () => rows.filter((r) =>
-      !debouncedFilter || r.product.title.toLowerCase().includes(debouncedFilter.toLowerCase()),
+      !appliedFilter || r.product.title.toLowerCase().includes(appliedFilter.toLowerCase()),
     ),
-    [rows, debouncedFilter],
+    [rows, appliedFilter],
   )
 
   const dirtyCount = useMemo(() => rows.filter((r) => r.counted !== '').length, [rows])
@@ -104,12 +103,8 @@ export function StockCount() {
       <input
         type="text"
         value={filter}
-        onChange={(e) => {
-          const v = e.target.value;
-          setFilter(v);
-          if (filterTimerRef.current) clearTimeout(filterTimerRef.current);
-          filterTimerRef.current = setTimeout(() => setDebouncedFilter(v), 250);
-        }}
+        onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') setAppliedFilter(filter); }}
         placeholder="Filter products…"
         className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
       />
