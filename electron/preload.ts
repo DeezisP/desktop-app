@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { UpdateStatus } from './main'
 
 export type ElectronAPI = {
   saveToken:   (key: string, value: string)  => Promise<boolean>
@@ -11,6 +12,19 @@ export type ElectronAPI = {
   openLogFile: ()                            => Promise<boolean>
   readLog:     ()                            => Promise<string>
   logPath:     ()                            => Promise<string>
+  /** Send a native desktop notification via the main process */
+  showNotification: (title: string, body?: string) => Promise<void>
+
+  // ── Auto-update ────────────────────────────────────────────────────────────
+  /** Trigger a manual update check (noop in dev mode) */
+  checkForUpdates: () => Promise<void>
+  /** Quit the app and install the downloaded update */
+  installUpdate:   () => Promise<void>
+  /**
+   * Subscribe to update status events pushed from the main process.
+   * Returns an unsubscribe function.
+   */
+  onUpdateStatus:  (cb: (status: UpdateStatus) => void) => () => void
 }
 
 const api: ElectronAPI = {
@@ -24,6 +38,18 @@ const api: ElectronAPI = {
   openLogFile: ()           => ipcRenderer.invoke('log:open'),
   readLog:     ()           => ipcRenderer.invoke('log:read'),
   logPath:     ()           => ipcRenderer.invoke('log:path'),
+  showNotification: (title, body) => ipcRenderer.invoke('notify:show', title, body),
+
+  // ── Auto-update ────────────────────────────────────────────────────────────
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  installUpdate:   () => ipcRenderer.invoke('update:install'),
+
+  onUpdateStatus: (cb) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => cb(status)
+    ipcRenderer.on('update:status', listener)
+    // Return an unsubscribe function so the caller can clean up
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

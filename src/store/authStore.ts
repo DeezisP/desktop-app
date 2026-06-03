@@ -61,7 +61,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     _setToken(token: string) {
       set({ token })
-      eAPI()?.saveToken('access_token', token)
+      if (eAPI()) {
+        eAPI()!.saveToken('access_token', token)
+      } else {
+        sessionStorage.setItem('access_token', token)
+      }
     },
 
     async initialize() {
@@ -69,12 +73,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       set({ isLoading: true })
       try {
         const api = eAPI()
-        if (!api) {
-          console.warn('[authStore] electronAPI unavailable')
-          set({ isLoading: false, isAuthenticated: false })
-          return
+        let token: string | null = null
+        if (api) {
+          token = await api.getToken('access_token')
+        } else {
+          // Browser dev mode — persist session across reloads via sessionStorage
+          token = sessionStorage.getItem('access_token')
         }
-        const token = await api.getToken('access_token')
         if (!token) {
           set({ isLoading: false })
           return
@@ -86,6 +91,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch (err) {
         console.error('[authStore] initialize error:', err)
         eAPI()?.clearTokens()
+        sessionStorage.removeItem('access_token')
         set({ token: null, user: null, isAuthenticated: false })
       } finally {
         set({ isLoading: false })
@@ -110,7 +116,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         // Trusted device — full login response (narrowed past the guard above)
         const loginResp = result as import('../types/auth').LoginResponse
         const { accessToken, ...user } = loginResp
-        await eAPI()?.saveToken('access_token', accessToken)
+        if (eAPI()) { await eAPI()!.saveToken('access_token', accessToken) }
+        else { sessionStorage.setItem('access_token', accessToken) }
         set({ token: accessToken, user: user as AuthUser, isAuthenticated: true })
       } finally {
         set({ isLoading: false })
@@ -129,7 +136,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
           pendingOtp.deviceToken,
         )
         const { accessToken, ...user } = result
-        await eAPI()?.saveToken('access_token', accessToken)
+        if (eAPI()) { await eAPI()!.saveToken('access_token', accessToken) }
+        else { sessionStorage.setItem('access_token', accessToken) }
         set({
           token:           accessToken,
           user:            user as AuthUser,
@@ -159,7 +167,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch {
         // Always clear local state even if server call fails
       } finally {
-        await eAPI()?.clearTokens()
+        eAPI()?.clearTokens()
+        sessionStorage.removeItem('access_token')
         set({ user: null, token: null, isAuthenticated: false, pendingOtp: null })
       }
     },

@@ -3,6 +3,23 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
+// Apply saved theme before React mounts to prevent flash of unstyled content.
+// Must run synchronously here, before the first paint.
+;(() => {
+  try {
+    const raw = localStorage.getItem('settings.theme')
+    const mode = raw ? (JSON.parse(raw) as string) : 'system'
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    const dark = mode === 'dark' || (mode === 'system' && prefersDark)
+    document.documentElement.classList.toggle('dark', dark)
+  } catch {}
+})()
+
+// Request desktop notification permission early so the browser doesn't block later.
+if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+  Notification.requestPermission().catch(() => {})
+}
+
 // ── Pure-DOM error overlay (works before React mounts) ────────────────────────
 
 function showCriticalError(title: string, message: string, stack: string) {

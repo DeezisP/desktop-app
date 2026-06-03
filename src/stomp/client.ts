@@ -8,19 +8,21 @@ import type { WarehouseQueueEvent } from '../types/warehouse'
 //
 // https:// → wss://   (TLS)
 // http://  → ws://    (plain — dev only)
-const rawUrl  = import.meta.env.VITE_WS_URL ?? 'https://perfectelt.com/perfect/v1/ws/websocket'
-const WS_URL  = rawUrl.replace(/^http/, 'ws')
+const rawUrl = import.meta.env.VITE_WS_URL ?? 'https://perfectelt.com/perfect/v1/ws/websocket'
+const WS_URL = rawUrl.replace(/^http/, 'ws')
 
 const WAREHOUSE_QUEUE_TOPIC = '/topic/admin/warehouse/queue'
 
-type QueueEventHandler = (event: WarehouseQueueEvent) => void
+type QueueEventHandler      = (event: WarehouseQueueEvent) => void
+type ConnectionStateHandler = (connected: boolean) => void
 
 class WarehouseStompClient {
   private client:       Client | null = null
   private subscription: StompSubscription | null = null
-  private handlers:     Set<QueueEventHandler> = new Set()
+  private queueHandlers: Set<QueueEventHandler>      = new Set()
+  private connHandlers:  Set<ConnectionStateHandler> = new Set()
   private currentToken: string | null = null
-  private connected  = false
+  private connected = false
 
   connect(token: string) {
     if (this.connected && this.currentToken === token) return
@@ -30,23 +32,22 @@ class WarehouseStompClient {
     console.log('[stomp] connecting to', WS_URL)
 
     this.client = new Client({
-      // Native WebSocket — no Node.js polyfills needed in Electron renderer.
       webSocketFactory: () => new WebSocket(WS_URL),
-      connectHeaders: {
-        Authorization: `Bearer ${token}`,
-      },
-      heartbeatIncoming: 25_000,
+      connectHeaders: { Authorization: `Bearer ${token}` },
+      heartbeatIncoming: 10_000,
       heartbeatOutgoing: 10_000,
-      reconnectDelay:    5_000,
+      reconnectDelay:    2_000,
       onConnect: () => {
         this.connected = true
         console.log('[stomp] connected')
+        this.notifyConnState(true)
         this.subscribeToQueue()
       },
       onDisconnect: () => {
         this.connected    = false
         this.subscription = null
         console.log('[stomp] disconnected')
+        this.notifyConnState(false)
       },
       onStompError: (frame) => {
         console.error('[stomp] STOMP error:', frame.headers['message'])
@@ -59,6 +60,10 @@ class WarehouseStompClient {
     this.client.activate()
   }
 
+  private notifyConnState(connected: boolean) {
+    this.connHandlers.forEach((h) => h(connected))
+  }
+
   private subscribeToQueue() {
     if (!this.client || !this.connected) return
     this.subscription = this.client.subscribe(
@@ -66,7 +71,7 @@ class WarehouseStompClient {
       (msg: IMessage) => {
         try {
           const event = JSON.parse(msg.body) as WarehouseQueueEvent
-          this.handlers.forEach((h) => h(event))
+          this.queueHandlers.forEach((h) => h(event))
         } catch (e) {
           console.error('[stomp] failed to parse queue event', e)
         }
@@ -89,8 +94,15 @@ class WarehouseStompClient {
   }
 
   onQueueEvent(handler: QueueEventHandler): () => void {
-    this.handlers.add(handler)
-    return () => this.handlers.delete(handler)
+    this.queueHandlers.add(handler)
+    return () => this.queueHandlers.delete(handler)
+  }
+
+  /** Subscribe to connection-state changes. Fires immediately with current state, then on every change. */
+  onConnectionChange(handler: ConnectionStateHandler): () => void {
+    handler(this.connected)
+    this.connHandlers.add(handler)
+    return () => this.connHandlers.delete(handler)
   }
 }
 

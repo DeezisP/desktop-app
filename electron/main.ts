@@ -1,7 +1,8 @@
 import {
   app, BrowserWindow, ipcMain, safeStorage,
-  session, Menu, shell,
+  session, Menu, shell, Notification,
 } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import path   from 'node:path'
 import fs     from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -60,6 +61,80 @@ process.on('unhandledRejection', (reason: unknown) => {
   log(`[main] unhandledRejection: ${msg}`)
 })
 
+// ── Auto-updater ──────────────────────────────────────────────────────────────
+// Pushes status objects to the renderer via the 'update:status' IPC channel.
+// State machine: idle → checking → available | not-available | error
+//                available → downloading → downloaded → (user clicks install)
+
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available';     version: string; releaseNotes?: string }
+  | { state: 'not-available'; version: string }
+  | { state: 'downloading';   percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloaded';    version: string }
+  | { state: 'error';         message: string }
+
+function sendUpdateStatus(status: UpdateStatus) {
+  log(`[updater] ${JSON.stringify(status)}`)
+  mainWindow?.webContents.send('update:status', status)
+}
+
+function setupAutoUpdater() {
+  // Disable electron-updater's built-in logger; we capture everything via events
+  autoUpdater.logger = null
+
+  // Download silently in the background; do NOT auto-install without user consent
+  autoUpdater.autoDownload    = true
+  autoUpdater.autoInstallOnAppQuit = false
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus({ state: 'checking' })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateStatus({
+      state: 'available',
+      version: String(info.version),
+      releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
+    })
+    // autoDownload=true means the download starts automatically here
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    sendUpdateStatus({ state: 'not-available', version: String(info.version) })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateStatus({
+      state:          'downloading',
+      percent:        Math.round(progress.percent),
+      bytesPerSecond: Math.round(progress.bytesPerSecond),
+      transferred:    progress.transferred,
+      total:          progress.total,
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus({ state: 'downloaded', version: String(info.version) })
+    // Show a system notification so the user is aware even if Settings isn't open
+    try {
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'อัปเดตพร้อมติดตั้ง',
+          body:  `เวอร์ชัน ${info.version} ดาวน์โหลดสำเร็จ เปิดการตั้งค่าเพื่อรีสตาร์ท`,
+          silent: false,
+        }).show()
+      }
+    } catch {}
+  })
+
+  autoUpdater.on('error', (err) => {
+    const msg = err?.message ?? String(err)
+    sendUpdateStatus({ state: 'error', message: msg })
+  })
+}
+
 // ── App menu ──────────────────────────────────────────────────────────────────
 
 function buildMenu() {
@@ -83,6 +158,26 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
+        // ── Auto-update ──────────────────────────────────────────────────────
+        {
+          label: 'Check for Updates…',
+          click: () => {
+            if (app.isPackaged) {
+              sendUpdateStatus({ state: 'checking' })
+              autoUpdater.checkForUpdates().catch((err) => {
+                sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+              })
+            } else {
+              log('[updater] skipping check — app is not packaged (dev mode)')
+              mainWindow?.webContents.send('update:status', {
+                state: 'error',
+                message: 'Auto-update is only available in the packaged app, not in dev mode.',
+              })
+            }
+          },
+        },
+        { type: 'separator' },
+        // ── DevTools (manual access only — NOT auto-opened on startup) ───────
         {
           label: 'Open DevTools',
           accelerator: 'CmdOrCtrl+Shift+I',
@@ -125,14 +220,8 @@ function buildMenu() {
 // ── Window creation ───────────────────────────────────────────────────────────
 
 function createWindow() {
-  // preload.mjs — Electron 28+ loads .mjs preloads via import() (not require()).
-  // vite-plugin-electron always outputs ESM when "type":"module" is set; the
-  // .mjs extension tells Electron to use its ESM preload loader.
   const preloadPath = path.join(__dirname, 'preload.mjs')
   const indexPath   = path.join(__dirname, '../dist/index.html')
-  // Use icon.ico on Windows — it contains all required sizes so the shell
-  // picks the right one for taskbar, Alt+Tab, and title bar.
-  // perfect-logo.png is the source; icon.ico is generated from it.
   const iconPath = path.join(
     __dirname,
     '../resources',
@@ -170,6 +259,20 @@ function createWindow() {
     log('[main] ready-to-show → showing window')
     mainWindow?.show()
     mainWindow?.focus()
+
+    // ── Auto-update check after window is visible ─────────────────────────
+    // Only run in packaged builds; dev mode has no installer channel.
+    if (app.isPackaged) {
+      setTimeout(() => {
+        log('[updater] auto-checking for updates on startup')
+        autoUpdater.checkForUpdates().catch((err) => {
+          log(`[updater] startup check failed: ${err?.message ?? err}`)
+          sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+        })
+      }, 3000) // 3-second delay so the UI settles before the check starts
+    } else {
+      log('[updater] skipping startup check — app is not packaged (dev mode)')
+    }
   })
 
   // Fallback: show after 5 s regardless — prevents permanent blank window
@@ -230,9 +333,7 @@ function createWindow() {
     callback({ requestHeaders: headers })
   })
 
-  // ── Always open DevTools in this debug build ────────────────────────────────
-
-  mainWindow.webContents.openDevTools({ mode: 'detach' })
+  // NOTE: DevTools are NOT auto-opened. Access via Help → Open DevTools (Ctrl+Shift+I).
 
   // ── Load renderer ───────────────────────────────────────────────────────────
 
@@ -312,10 +413,47 @@ ipcMain.handle('log:read', (): string => {
 // Return the log file path
 ipcMain.handle('log:path', (): string => logPath ?? '(not initialized)')
 
+// ── Desktop notifications ─────────────────────────────────────────────────────
+
+ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
+  try {
+    if (Notification.isSupported()) {
+      new Notification({ title, body: body ?? '', silent: true }).show()
+    }
+  } catch (e) {
+    log(`[main] notify:show error: ${e}`)
+  }
+})
+
+// ── Auto-update IPC ───────────────────────────────────────────────────────────
+
+// Renderer requests a manual update check
+ipcMain.handle('update:check', (): void => {
+  if (!app.isPackaged) {
+    mainWindow?.webContents.send('update:status', {
+      state: 'error',
+      message: 'Auto-update is only available in the packaged app, not in dev mode.',
+    } satisfies UpdateStatus)
+    return
+  }
+  sendUpdateStatus({ state: 'checking' })
+  autoUpdater.checkForUpdates().catch((err) => {
+    sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+  })
+})
+
+// Renderer requests quit-and-install after update is downloaded
+ipcMain.handle('update:install', (): void => {
+  log('[updater] user requested quitAndInstall')
+  // isSilent=false shows a progress UI; isForceRunAfter=true relaunches the app
+  autoUpdater.quitAndInstall(false, true)
+})
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   initLogFile()
+  setupAutoUpdater()
   buildMenu()
   createWindow()
 }).catch((err) => {

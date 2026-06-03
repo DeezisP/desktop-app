@@ -9,8 +9,15 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
 
 export default defineConfig({
-  // Relative paths required so file:// loading resolves ./assets/* correctly.
-  base: './',
+  // './' is required for Electron (file:// protocol).
+  // '/' is required for browser routing — relative paths break on any sub-path.
+  base: process.env.ELECTRON_SKIP_LAUNCH ? '/' : './',
+
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    allowedHosts: ['app.perfectelt.com'],
+  },
 
   resolve: {
     alias: {
@@ -25,11 +32,19 @@ export default defineConfig({
       // ── Main process (ESM — Electron 31 supports ESM main natively) ──────
       {
         entry: 'electron/main.ts',
+        onstart(options) {
+          // ELECTRON_SKIP_LAUNCH=true → headless VPS browser-only dev mode
+          if (!process.env.ELECTRON_SKIP_LAUNCH) {
+            options.startup()
+          }
+        },
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron'],
+              // electron-updater is CJS and must stay external so Node.js
+              // resolves it from node_modules at runtime, not bundled by Vite.
+              external: ['electron', 'electron-updater'],
             },
           },
         },

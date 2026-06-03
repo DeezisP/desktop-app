@@ -18,12 +18,45 @@ extraResources:
       - "*.png"
       - "*.ico"
 
+# ── Windows build ─────────────────────────────────────────────────────────────
+
 win:
   icon: resources/icon.ico
+
+  # ── Code signing ────────────────────────────────────────────────────────────
+  #
+  # Unsigned builds will trigger a SmartScreen "Unknown publisher" warning on
+  # end-user machines. To remove the warning you need a code signing certificate.
+  #
+  # OV (Organisation Validated) certificate — standard signing:
+  #   Removes SmartScreen after your app accumulates enough reputation.
+  #   Store the PFX file securely (do NOT commit it to git).
+  #
+  #   signingHashAlgorithms: ["sha256"]
+  #   certificateFile: path/to/your-ov-certificate.pfx
+  #   certificatePassword: ${CSC_KEY_PASSWORD}   # set via env var in CI
+  #
+  # EV (Extended Validation) certificate — immediate SmartScreen approval:
+  #   Required for HSM-based tokens (USB hardware key). EV certs bypass
+  #   reputation entirely — SmartScreen shows "Verified publisher" on first run.
+  #
+  #   signingHashAlgorithms: ["sha256"]
+  #   certificateSubjectName: "Perfect ELT Co., Ltd."  # must match cert CN
+  #   # EV certs use a hardware token; set CSC_LINK and CSC_KEY_PASSWORD in CI.
+  #
+  # CI environment variables:
+  #   CSC_LINK          — path or base64-encoded PFX (for OV)
+  #   CSC_KEY_PASSWORD  — PFX password
+  #   WIN_CSC_LINK      — Windows-specific override (if needed)
+  #
+  # Reference: https://www.electron.build/code-signing
+
   target:
     - target: nsis
       arch:
         - x64
+
+# ── NSIS installer ────────────────────────────────────────────────────────────
 
 nsis:
   oneClick: false
@@ -38,6 +71,20 @@ nsis:
   deleteAppDataOnUninstall: false
   displayLanguageSelector: false
 
+# ── Auto-update publishing ────────────────────────────────────────────────────
+# electron-updater reads this section to know where to check for new releases.
+# Releases must be published (not draft) for auto-update to find them.
+# Version tags must match semver: v1.0.0, v1.0.1, v1.0.2, ...
+#
+# To publish a release:
+#   1. Bump version in package.json
+#   2. npm run dist        → builds + packages
+#   3. Push tag:  git tag v1.0.1 && git push origin v1.0.1
+#   4. electron-builder publishes the assets to the GitHub release.
+#   5. Change releaseType from "draft" to "release" when ready for end users.
+
 publish:
   provider: github
-  releaseType: draft
+  owner: DeezisP
+  repo: desktop-app
+  releaseType: release

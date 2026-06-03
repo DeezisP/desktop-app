@@ -48,7 +48,7 @@ function CredentialsStep({
       if (typeof raw === 'string')         setError(raw)
       else if (raw && typeof raw === 'object' && 'message' in raw)
         setError((raw as { message: string }).message)
-      else setError('Login failed. Check your credentials.')
+      else setError('เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้และรหัสผ่าน')
     } finally {
       setSubmitting(false)
     }
@@ -56,32 +56,32 @@ function CredentialsStep({
 
   if (isLoading && !submitting) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-950">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
+      <div className="flex h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-950">
+    <div className="flex h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-2xl font-bold text-white shadow-lg">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-2xl font-bold text-white shadow-lg">
             W
           </div>
-          <h1 className="text-xl font-semibold text-white">Perfect ELT Warehouse</h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to continue</p>
+          <h1 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">Perfect ELT Warehouse</h1>
+          <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">เข้าสู่ระบบเพื่อดำเนินการต่อ</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
+          className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-sm"
         >
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-400" htmlFor="username">
-                Username
+              <label className="mb-1.5 block text-xs font-medium text-zinc-500 dark:text-zinc-400" htmlFor="username">
+                ชื่อผู้ใช้
               </label>
               <input
                 id="username"
@@ -91,13 +91,13 @@ function CredentialsStep({
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 text-sm text-zinc-800 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-600 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-400" htmlFor="password">
-                Password
+              <label className="mb-1.5 block text-xs font-medium text-zinc-500 dark:text-zinc-400" htmlFor="password">
+                รหัสผ่าน
               </label>
               <input
                 id="password"
@@ -106,12 +106,12 @@ function CredentialsStep({
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 text-sm text-zinc-800 dark:text-zinc-100 placeholder-zinc-300 dark:placeholder-zinc-600 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
             </div>
 
             {error && (
-              <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/30">
+              <p className="rounded-lg bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-400 ring-1 ring-red-200 dark:ring-red-800">
                 {error}
               </p>
             )}
@@ -119,9 +119,9 @@ function CredentialsStep({
             <button
               type="submit"
               disabled={submitting || !username || !password}
-              className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:ring-offset-zinc-900"
             >
-              {submitting ? 'Signing in…' : 'Sign in'}
+              {submitting ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
             </button>
           </div>
         </form>
@@ -213,7 +213,7 @@ function OtpStep({
       if (typeof raw === 'string')         setError(raw)
       else if (raw && typeof raw === 'object' && 'message' in raw)
         setError((raw as { message: string }).message)
-      else setError('Invalid or expired code. Please try again.')
+      else setError('รหัสไม่ถูกต้องหรือหมดอายุ กรุณาลองอีกครั้ง')
       // Clear digits on wrong OTP
       setDigits(Array(OTP_LENGTH).fill(''))
       setTimeout(() => inputRefs.current[0]?.focus(), 50)
@@ -228,41 +228,41 @@ function OtpStep({
     setResending(true)
     try {
       await onResend()
-      setResendMsg('A new code was sent to your email.')
+      setResendMsg('ส่งรหัสใหม่ไปยังอีเมลของคุณแล้ว')
       setCooldown(60)
       setDigits(Array(OTP_LENGTH).fill(''))
       setTimeout(() => inputRefs.current[0]?.focus(), 50)
     } catch {
-      setError('Could not resend the code. Please try again.')
+      setError('ส่งรหัสใหม่ไม่สำเร็จ กรุณาลองอีกครั้ง')
     } finally {
       setResending(false)
     }
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-950">
+    <div className="flex h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
       <div className="w-full max-w-sm">
         {/* Header */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-2xl font-bold text-white shadow-lg">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-2xl font-bold text-white shadow-lg">
             ✉
           </div>
-          <h1 className="text-xl font-semibold text-white">Verify your device</h1>
-          <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-            A {OTP_LENGTH}-digit code was sent to
+          <h1 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">ยืนยันอุปกรณ์</h1>
+          <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500 leading-relaxed">
+            รหัส {OTP_LENGTH} หลักถูกส่งไปที่
           </p>
-          <p className="mt-0.5 text-sm font-medium text-brand-400">{maskedEmail}</p>
+          <p className="mt-0.5 text-sm font-medium text-blue-600 dark:text-blue-400">{maskedEmail}</p>
         </div>
 
         <form
           onSubmit={handleVerify}
-          className="rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-xl"
+          className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-sm"
         >
           <div className="space-y-5">
             {/* OTP digit inputs */}
             <div>
               <label className="mb-3 block text-xs font-medium text-slate-400 text-center">
-                Enter verification code
+                กรอกรหัสยืนยัน
               </label>
               <div className="flex justify-center gap-2.5">
                 {digits.map((d, i) => (
@@ -278,13 +278,13 @@ function OtpStep({
                     onFocus={(e) => e.target.select()}
                     className={`
                       h-12 w-10 rounded-lg border text-center text-lg font-bold
-                      bg-slate-800 text-slate-100 transition-colors
+                      bg-white text-zinc-800 transition-colors
                       focus:outline-none focus:ring-2
                       ${d
-                        ? 'border-brand-500 ring-brand-500/40'
-                        : 'border-slate-700 focus:border-brand-500 focus:ring-brand-500/40'
+                        ? 'border-blue-500 ring-blue-500/30'
+                        : 'border-zinc-300 focus:border-blue-500 focus:ring-blue-500/30'
                       }
-                      ${error ? 'border-red-500/60' : ''}
+                      ${error ? 'border-red-400' : ''}
                     `}
                     aria-label={`Digit ${i + 1}`}
                     disabled={submitting || isLoading}
@@ -294,13 +294,13 @@ function OtpStep({
             </div>
 
             {error && (
-              <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400 ring-1 ring-red-500/30 text-center">
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 ring-1 ring-red-200 text-center">
                 {error}
               </p>
             )}
 
             {resendMsg && !error && (
-              <p className="rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-400 ring-1 ring-green-500/30 text-center">
+              <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700 ring-1 ring-green-200 text-center">
                 {resendMsg}
               </p>
             )}
@@ -308,26 +308,26 @@ function OtpStep({
             <button
               type="submit"
               disabled={!isComplete || submitting || isLoading}
-              className="w-full rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? 'Verifying…' : 'Verify & Sign in'}
+              {submitting ? 'กำลังยืนยัน…' : 'ยืนยันและเข้าสู่ระบบ'}
             </button>
 
             {/* Resend */}
-            <div className="flex items-center justify-center gap-1 text-xs text-slate-500">
-              <span>Didn't get it?</span>
+            <div className="flex items-center justify-center gap-1 text-xs text-zinc-400">
+              <span>ไม่ได้รับรหัส?</span>
               {resendCooldown > 0 ? (
                 <span className="text-slate-600">
-                  Resend in {resendCooldown}s
+                  ส่งใหม่ใน {resendCooldown}s
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={handleResend}
                   disabled={resending}
-                  className="text-brand-400 hover:text-brand-300 disabled:opacity-50 underline underline-offset-2"
+                  className="text-blue-600 hover:text-blue-700 disabled:opacity-50 underline underline-offset-2"
                 >
-                  {resending ? 'Sending…' : 'Resend code'}
+                  {resending ? 'กำลังส่ง…' : 'ส่งรหัสใหม่'}
                 </button>
               )}
             </div>
@@ -336,9 +336,9 @@ function OtpStep({
             <button
               type="button"
               onClick={onCancel}
-              className="w-full text-xs text-slate-600 hover:text-slate-400 transition-colors"
+              className="w-full text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
             >
-              ← Back to sign in
+              ← กลับหน้าเข้าสู่ระบบ
             </button>
           </div>
         </form>

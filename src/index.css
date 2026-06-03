@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── LINE Seed Sans TH ──────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('./font/LINESeedSansTH_W_Th.woff2') format('woff2');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('./font/LINESeedSansTH_W_Rg.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('./font/LINESeedSansTH_W_Bd.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('./font/LINESeedSansTH_W_XBd.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'LINE Seed Sans TH';
+  src: url('./font/LINESeedSansTH_W_He.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -14,20 +52,37 @@
   }
 
   body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'LINE Seed Sans TH', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #020617; /* slate-950 */
-    color: #f1f5f9;            /* slate-100 */
+    background-color: #ffffff;
+    color: #18181b;
     user-select: none;
   }
 
-  /* Allow text selection in inputs and textareas */
-  input, textarea {
+  /* Dark mode body background — matches Tailwind dark:bg-zinc-950 */
+  html.dark body {
+    background-color: #09090b;
+    color: #f4f4f5;
+  }
+
+  input, textarea, select {
     user-select: text;
   }
 
-  /* Scrollbar styling */
+  /* ── Keyboard focus rings ── */
+  /* Visible ring only when navigating with keyboard (not mouse) */
+  :focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+  }
+
+  /* Remove default focus outline for mouse users */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* ── Scrollbars ── */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -36,10 +91,26 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: #d4d4d8;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+    background: #a1a1aa;
+  }
+
+  html.dark ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+  }
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: #52525b;
+  }
+
+  /* ── Theme colour-scheme hints (used by browser scrollbar / form controls) ── */
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
 }
+

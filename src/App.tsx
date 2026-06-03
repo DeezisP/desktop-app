@@ -5,20 +5,16 @@ import { useAuthStore }   from './store/authStore'
 import { Layout }         from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login }          from './screens/Login'
-import { Dashboard }      from './screens/Dashboard'
-import { ScanPack }       from './screens/ScanPack'
-import { ProductLookup }  from './screens/ProductLookup'
-import { StockIn }        from './screens/StockIn'
-import { StockOut }       from './screens/StockOut'
-import { StockCount }     from './screens/StockCount'
-import { OrderPacking }   from './screens/OrderPacking'
-import { OrderImport }    from './screens/OrderImport'
 import { StockHistory }   from './screens/StockHistory'
+import Settings           from './screens/Settings'
+import ImportPanel         from './panels/ImportPanel'
+import OrderListPanel      from './panels/OrderListPanel'
+import PackingPanel        from './panels/PackingPanel'
+import StockListPanel      from './panels/StockListPanel'
+import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
 
-// ── Router detection ──────────────────────────────────────────────────────────
-// Use navigator.userAgent — set by Electron itself, reliable regardless of
-// whether the preload script executed successfully.
-// BrowserRouter with file:// = pathname is a filesystem path, no route matches.
+// Side-effect import: initialises theme from localStorage before first paint
+import './store/settingsStore'
 
 const isElectron = typeof navigator !== 'undefined' &&
   navigator.userAgent.includes('Electron')
@@ -29,13 +25,14 @@ console.log('[App] isElectron:', isElectron)
 console.log('[App] router type:', isElectron ? 'MemoryRouter' : 'BrowserRouter')
 console.log('[App] window.electronAPI:', typeof window.electronAPI)
 
-// ── Root component ────────────────────────────────────────────────────────────
+function Padded({ children }: { children: React.ReactNode }) {
+  return <div className="p-5 h-full overflow-y-auto">{children}</div>
+}
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize)
 
   useEffect(() => {
-    console.log('[App] mount → initialize()')
     initialize().catch((err: unknown) => {
       console.error('[App] initialize() rejected:', err)
     })
@@ -54,15 +51,13 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index                  element={<Dashboard />} />
-            <Route path="scan-pack"       element={<ScanPack />} />
-            <Route path="product-lookup"  element={<ProductLookup />} />
-            <Route path="stock-in"        element={<StockIn />} />
-            <Route path="stock-out"       element={<StockOut />} />
-            <Route path="stock-count"     element={<StockCount />} />
-            <Route path="order-packing"   element={<OrderPacking />} />
-            <Route path="order-import"    element={<OrderImport />} />
-            <Route path="stock-history"   element={<StockHistory />} />
+            <Route index              element={<ImportPanel />} />
+            <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
+            <Route path="packing"     element={<Padded><PackingPanel /></Padded>} />
+            <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
+            <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
+            <Route path="history"     element={<Padded><StockHistory /></Padded>} />
+            <Route path="settings"    element={<Settings />} />
           </Route>
         </Routes>
       </Router>
