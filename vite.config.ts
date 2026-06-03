@@ -42,8 +42,9 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              // electron-updater is CJS and must stay external so Node.js
-              // resolves it from node_modules at runtime, not bundled by Vite.
+              // electron is always external (Electron provides it at runtime).
+              // electron-updater is loaded via createRequire() so Rollup never
+              // sees it as a static import, but keep it listed for safety.
               external: ['electron', 'electron-updater'],
             },
           },

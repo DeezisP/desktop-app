@@ -2,10 +2,21 @@ import {
   app, BrowserWindow, ipcMain, safeStorage,
   session, Menu, shell, Notification,
 } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { createRequire } from 'node:module'
 import path   from 'node:path'
 import fs     from 'node:fs'
 import { fileURLToPath } from 'node:url'
+
+// electron-updater is a CommonJS module. Its `autoUpdater` export is defined
+// as a lazy getter via Object.defineProperty, which Node.js's static CJS→ESM
+// name extractor does not execute. Using a named ESM import therefore throws:
+//   SyntaxError: Named export 'autoUpdater' not found
+//
+// Fix: load via createRequire so that require() evaluates the getter at
+// runtime inside the Electron process where `app` is already initialised.
+const _require = createRequire(import.meta.url)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { autoUpdater } = _require('electron-updater') as typeof import('electron-updater')
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = path.dirname(__filename)
