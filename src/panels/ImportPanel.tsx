@@ -9,6 +9,7 @@ import {
 import WarehouseService, { type OrderImport } from '../service/WarehouseService';
 import ImportHistoryPanel, { saveImportSession } from './ImportHistoryPanel';
 import ManualOrderForm from './ManualOrderForm';
+import { useAdminGuard } from '../hooks/useAdminGuard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -432,6 +433,7 @@ function toPayload(e: QueueEntry): OrderImport {
 }
 
 function ShopeeImportPanel() {
+  const { requireAdmin } = useAdminGuard();
   const [isDragging, setIsDragging]     = useState(false);
   const [parseMode, setParseMode]       = useState<ParseMode>('auto');
   const [processing, setProcessing]     = useState(false);
@@ -455,6 +457,7 @@ function ShopeeImportPanel() {
   }, [stopTimer]);
 
   const processFile = useCallback(async (f: File) => {
+    if (!requireAdmin()) return;
     const ext = f.name.split('.').pop()?.toLowerCase();
     if (!['xlsx', 'xls', 'csv'].includes(ext ?? '')) return;
     setFileName(f.name);

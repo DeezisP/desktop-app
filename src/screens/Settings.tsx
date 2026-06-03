@@ -185,7 +185,7 @@ function UpdatesSection() {
     switch (status.state) {
       case 'idle':
         return (
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">กดปุ่มเพื่อตรวจสอบ</span>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500"></span>
         )
       case 'checking':
         return (
@@ -250,9 +250,6 @@ function UpdatesSection() {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">ตรวจสอบอัปเดต</p>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 leading-snug">
-            อัปเดตจาก GitHub Releases — ดาวน์โหลดในพื้นหลัง
-          </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           {statusNode}

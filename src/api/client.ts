@@ -80,7 +80,12 @@ apiClient.interceptors.response.use(
       return apiClient(original)
     } catch (refreshErr) {
       drainQueue(refreshErr, null)
-      await _doLogout?.()
+      // Only logout when the refresh endpoint explicitly rejects the token (401/403).
+      // Network errors, timeouts, and 5xx responses are transient — keep the session.
+      const status = (refreshErr as { response?: { status?: number } })?.response?.status
+      if (status === 401 || status === 403) {
+        await _doLogout?.()
+      }
       return Promise.reject(refreshErr)
     } finally {
       isRefreshing = false

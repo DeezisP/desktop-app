@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { ThemeToggle } from './ThemeToggle'
 import { ToastOverlay } from './Toast'
+import { UpdateBanner } from './UpdateBanner'
 import { useStomp } from '../hooks/useStomp'
 import { useSettingsStore } from '../store/settingsStore'
 
@@ -86,6 +87,9 @@ export function Layout() {
 
       {/* Global toast overlay */}
       <ToastOverlay />
+
+      {/* Global update notification banner */}
+      <UpdateBanner />
     </div>
   )
 }

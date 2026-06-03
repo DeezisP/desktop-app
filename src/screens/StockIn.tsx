@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react'
 import { productsApi } from '../api/warehouse'
 import { BarcodeInput } from '../components/BarcodeInput'
+import { useAdminGuard } from '../hooks/useAdminGuard'
 import type { WarehouseProductResponse } from '../types/warehouse'
 
 export function StockIn() {
+  const { requireAdmin } = useAdminGuard()
   const [product, setProduct]   = useState<WarehouseProductResponse | null>(null)
   const [query, setQuery]       = useState('')
   const [delta, setDelta]       = useState(1)
@@ -38,6 +40,7 @@ export function StockIn() {
   }, [query, lookupByBarcode])
 
   const handleAdjust = useCallback(async () => {
+    if (!requireAdmin()) return
     if (!product || delta <= 0) return
     setLoading(true)
     setSuccess(null)

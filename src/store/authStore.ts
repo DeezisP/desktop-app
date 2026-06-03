@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import axios from 'axios'
 import { authApi } from '../api/auth'
 import { registerAuthAccessors } from '../api/client'
 import type { AuthUser } from '../types/auth'
@@ -91,9 +92,17 @@ export const useAuthStore = create<AuthState>((set, get) => {
         set({ user, isAuthenticated: true })
       } catch (err) {
         console.error('[authStore] initialize error:', err)
-        eAPI()?.clearTokens()
-        sessionStorage.removeItem('access_token')
-        set({ token: null, user: null, isAuthenticated: false })
+        // Only clear the stored token if the server explicitly rejected it (401/403).
+        // Network errors, timeouts, and other transient failures must NOT trigger
+        // logout — the user's session is still valid; we just can't verify it right now.
+        const status = axios.isAxiosError(err) ? err.response?.status : undefined
+        if (status === 401 || status === 403) {
+          eAPI()?.clearTokens()
+          sessionStorage.removeItem('access_token')
+          set({ token: null, user: null, isAuthenticated: false })
+        }
+        // For transient errors: leave token intact so the app keeps the user logged in.
+        // The next API call will re-attempt authentication via the refresh interceptor.
       } finally {
         set({ isLoading: false })
       }

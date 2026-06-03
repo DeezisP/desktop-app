@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Plus, Trash2, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import WarehouseService, { type WarehouseProduct } from '../service/WarehouseService';
 import { saveImportSession } from './ImportHistoryPanel';
+import { useAdminGuard } from '../hooks/useAdminGuard';
 
 interface ItemRow {
   _id: string;
@@ -170,6 +171,7 @@ function ProductItemRow({ item, index, allProducts, productsLoading, canRemove, 
 // ── Main form ─────────────────────────────────────────────────────────────────
 
 export default function ManualOrderForm() {
+  const { requireAdmin } = useAdminGuard();
   const [open, setOpen]                       = useState(false);
   const [orderNo, setOrderNo]                 = useState('');
   const [customerName, setCustomerName]       = useState('');
@@ -205,6 +207,7 @@ export default function ManualOrderForm() {
   };
 
   const handleSubmit = async () => {
+    if (!requireAdmin()) return;
     if (!orderNo.trim()) return;
     const valid = items.filter(i => i.product_name.trim());
     if (valid.length === 0) return;
