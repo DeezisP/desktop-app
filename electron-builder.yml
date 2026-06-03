@@ -1,6 +1,6 @@
 appId: com.perfectelt.warehouse
-productName: Perfect ELT Warehouse
-copyright: Copyright © 2024 Perfect ELT
+productName: Perfect Electronic
+copyright: Copyright © 2024 Perfect Electronic
 
 directories:
   buildResources: resources
@@ -41,7 +41,7 @@ win:
   #   reputation entirely — SmartScreen shows "Verified publisher" on first run.
   #
   #   signingHashAlgorithms: ["sha256"]
-  #   certificateSubjectName: "Perfect ELT Co., Ltd."  # must match cert CN
+  #   certificateSubjectName: "Perfect Electronic Co., Ltd."  # must match cert CN
   #   # EV certs use a hardware token; set CSC_LINK and CSC_KEY_PASSWORD in CI.
   #
   # CI environment variables:
@@ -67,7 +67,7 @@ nsis:
   uninstallerIcon: resources/icon.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Perfect ELT Warehouse
+  shortcutName: Perfect Electronic
   deleteAppDataOnUninstall: false
   displayLanguageSelector: false
 

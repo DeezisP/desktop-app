@@ -1,6 +1,6 @@
 import {
   app, BrowserWindow, ipcMain, safeStorage,
-  session, Menu, shell, Notification,
+  session, Menu, shell, Notification, net,
 } from 'electron'
 import { createRequire } from 'node:module'
 import path   from 'node:path'
@@ -27,10 +27,6 @@ const PRODUCTION_ORIGIN   = 'https://perfectelt.com'
 const tokenStore = new Map<string, Buffer>()
 let mainWindow: BrowserWindow | null = null
 let logPath: string | null = null
-
-// Whether the updater was configured successfully and can check for updates.
-// Set to false when the GitHub token is missing or the app is in dev mode.
-let updaterReady = false
 
 // ── File logger ───────────────────────────────────────────────────────────────
 
@@ -77,12 +73,10 @@ process.on('unhandledRejection', (reason: unknown) => {
 })
 
 // ── Auto-updater ──────────────────────────────────────────────────────────────
+// Checks public GitHub Releases for DeezisP/desktop-app.
 // Pushes status objects to the renderer via the 'update:status' IPC channel.
 // State machine: idle → checking → available | not-available | error
 //                available → downloading → downloaded → (user clicks install)
-//
-// Security: UPDATER_TOKEN is read only in the main process and is
-// NEVER forwarded to the renderer, preload, contextBridge, or any IPC reply.
 
 export type UpdateStatus =
   | { state: 'idle' }
@@ -98,69 +92,15 @@ function sendUpdateStatus(status: UpdateStatus) {
   mainWindow?.webContents.send('update:status', status)
 }
 
-// Map raw electron-updater / HTTP error strings to user-friendly messages.
-// Never exposes the raw token or Authorization header in the output.
-function friendlyUpdateError(err: Error | unknown): string {
-  const raw = (err instanceof Error ? err.message : String(err)) ?? ''
-  const lower = raw.toLowerCase()
-
-  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('bad credentials')) {
-    return 'Authentication failed — the updater token may be invalid or expired'
-  }
-  if (lower.includes('403') || lower.includes('forbidden')) {
-    return 'Repository not accessible — token may lack the required permissions'
-  }
-  if (lower.includes('404') || lower.includes('not found')) {
-    return 'No releases found — verify the repository owner and name'
-  }
-  if (lower.includes('429') || lower.includes('rate limit')) {
-    return 'GitHub rate limit reached — try again in a few minutes'
-  }
-  if (lower.includes('enotfound') || lower.includes('econnrefused') || lower.includes('network') || lower.includes('socket')) {
-    return 'Update server unreachable — check your network connection'
-  }
-  if (lower.includes('certificate') || lower.includes('ssl') || lower.includes('tls')) {
-    return 'TLS/SSL error connecting to update server'
-  }
-  return raw || 'Unknown update error'
-}
-
 function setupAutoUpdater() {
-  // ── Diagnostics — log config, never log token value ─────────────────────
-  const updaterToken = process.env['UPDATER_TOKEN']
-  const tokenPresent = Boolean(updaterToken && updaterToken.trim().length > 0)
-
   log('[updater] provider=github')
   log('[updater] owner=DeezisP')
   log('[updater] repo=desktop-app')
   log('[updater] releaseType=release')
-  log(`[updater] tokenPresent=${tokenPresent}`)
 
-  // ── Token guard ──────────────────────────────────────────────────────────
-  if (!tokenPresent) {
-    log('[updater] WARN: UPDATER_TOKEN is not set — update checks disabled')
-    log('[updater] Set UPDATER_TOKEN in the system environment to enable updates')
-    // Send an error state so the Settings UI shows a clear message, not a spinner
-    sendUpdateStatus({
-      state:   'error',
-      message: 'GitHub updater token missing — set UPDATER_TOKEN to enable updates',
-    })
-    updaterReady = false
-    return
-  }
-
-  // ── Configure authentication ─────────────────────────────────────────────
-  // addAuthHeader merges the token into requestHeaders for every HTTP request
-  // made by electron-updater (releases feed + asset downloads).
-  // The token never leaves the main process.
-  autoUpdater.addAuthHeader(`Bearer ${updaterToken}`)
-
-  // ── Other settings ───────────────────────────────────────────────────────
-  autoUpdater.logger              = null    // we capture everything via events
-  autoUpdater.autoDownload        = true    // background download, no prompt
-  autoUpdater.autoInstallOnAppQuit = false  // user must click "Restart and Install"
-
-  // ── Event handlers ───────────────────────────────────────────────────────
+  autoUpdater.logger              = null   // we capture everything via events below
+  autoUpdater.autoDownload        = true   // background download, no prompt
+  autoUpdater.autoInstallOnAppQuit = false // user must click "Restart and Install"
 
   autoUpdater.on('checking-for-update', () => {
     sendUpdateStatus({ state: 'checking' })
@@ -172,7 +112,6 @@ function setupAutoUpdater() {
       version:      String(info.version),
       releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
     })
-    // autoDownload=true means the download starts automatically after this event
   })
 
   autoUpdater.on('update-not-available', (info) => {
@@ -203,11 +142,10 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (err) => {
-    sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
+    sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
   })
 
-  updaterReady = true
-  log('[updater] initialised successfully')
+  log('[updater] initialised')
 }
 
 // ── App menu ──────────────────────────────────────────────────────────────────
@@ -233,7 +171,6 @@ function buildMenu() {
     {
       label: 'Help',
       submenu: [
-        // ── Auto-update ──────────────────────────────────────────────────────
         {
           label: 'Check for Updates…',
           click: () => {
@@ -242,18 +179,14 @@ function buildMenu() {
               sendUpdateStatus({ state: 'error', message: 'Auto-update only works in the packaged app.' })
               return
             }
-            if (!updaterReady) {
-              sendUpdateStatus({ state: 'error', message: 'Updater not configured — UPDATER_TOKEN missing.' })
-              return
-            }
             sendUpdateStatus({ state: 'checking' })
             autoUpdater.checkForUpdates().catch((err) => {
-              sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
+              sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
             })
           },
         },
         { type: 'separator' },
-        // ── DevTools (manual, NOT auto-opened on startup) ────────────────────
+        // DevTools — manual access only, NOT auto-opened on startup
         {
           label: 'Open DevTools',
           accelerator: 'CmdOrCtrl+Shift+I',
@@ -306,7 +239,7 @@ function createWindow() {
     height:    860,
     minWidth:  1100,
     minHeight: 680,
-    title:     'Perfect ELT Warehouse',
+    title:     'Perfect Electronic',
     icon:      fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0f172a',
     show: false,
@@ -324,19 +257,17 @@ function createWindow() {
     mainWindow?.show()
     mainWindow?.focus()
 
-    // Startup update check — packaged + token present only
-    if (app.isPackaged && updaterReady) {
+    // Auto-update check — packaged builds only; dev mode has no installer channel
+    if (app.isPackaged) {
       setTimeout(() => {
         log('[updater] auto-checking for updates on startup')
         autoUpdater.checkForUpdates().catch((err) => {
           log(`[updater] startup check failed: ${err?.message ?? err}`)
-          sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
+          sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
         })
       }, 3000)
-    } else if (!app.isPackaged) {
-      log('[updater] skipping startup check — dev mode')
     } else {
-      log('[updater] skipping startup check — updater not ready (token missing)')
+      log('[updater] skipping startup check — dev mode')
     }
   })
 
@@ -370,14 +301,23 @@ function createWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null })
 
-  // CORS: spoof Origin so backend CORS allows file:// requests
+  // CORS: spoof Origin so backend CORS allows file:// requests.
+  //
+  // In a packaged Electron app the renderer runs from file:// so Chromium sets
+  // Origin: null (the literal string "null"). Spring Boot's CORS policy rejects
+  // that, causing WebSocket upgrades and API calls to fail with 403.
+  //
+  // We override any absent, null, or file:// origin with the production value
+  // for every request — including WebSocket upgrade requests.
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders }
-    if (!headers['Origin'] && !headers['origin']) headers['Origin'] = PRODUCTION_ORIGIN
+    const origin  = headers['Origin'] ?? headers['origin'] ?? ''
+    if (!origin || origin === 'null' || origin.startsWith('file://')) {
+      headers['Origin'] = PRODUCTION_ORIGIN
+      delete headers['origin']  // remove lower-case duplicate if present
+    }
     callback({ requestHeaders: headers })
   })
-
-  // NOTE: DevTools are NOT auto-opened. Use Help → Open DevTools (Ctrl+Shift+I).
 
   if (VITE_DEV_SERVER_URL) {
     log('[main] loading dev server: ' + VITE_DEV_SERVER_URL)
@@ -450,22 +390,127 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   } catch (e) { log(`[main] notify:show error: ${e}`) }
 })
 
+// ── Google OAuth IPC ──────────────────────────────────────────────────────────
+
+export type GoogleLoginResult =
+  | { success: true;  accessToken: string }
+  | { success: false; error: string }
+
+const GOOGLE_CLIENT_ID  = '970539775014-pdsiuqc987ses2n4o00e48geb2d2uikg.apps.googleusercontent.com'
+const GOOGLE_REDIRECT   = 'https://www.perfectelt.com/perfect/v1/auth/google-success'
+const GOOGLE_AUTH_URL   = 'https://accounts.google.com/o/oauth2/v2/auth'
+
+ipcMain.handle('auth:google', async (): Promise<GoogleLoginResult> => {
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id:     GOOGLE_CLIENT_ID,
+    redirect_uri:  GOOGLE_REDIRECT,
+    scope:         'openid email profile',
+    access_type:   'offline',
+    prompt:        'select_account',
+  })
+
+  try {
+    // ── Step 1: open popup and wait for OAuth completion ──────────────────
+    const oauthResult = await new Promise<{ host: string } | { error: string }>((resolve) => {
+      const popup = new BrowserWindow({
+        width:  520,
+        height: 660,
+        parent: mainWindow ?? undefined,
+        modal:  false,
+        title:  'Sign in with Google',
+        autoHideMenuBar: true,
+        webPreferences: {
+          nodeIntegration:  false,
+          contextIsolation: true,
+          sandbox:          false,
+        },
+      })
+
+      let settled = false
+      const settle = (v: { host: string } | { error: string }) => {
+        if (settled) return
+        settled = true
+        if (!popup.isDestroyed()) popup.destroy()
+        resolve(v)
+      }
+
+      const checkUrl = (url: string) => {
+        try {
+          const { hostname, pathname, searchParams } = new URL(url)
+          if (!hostname.endsWith('perfectelt.com')) return
+          // Still processing through the backend auth endpoint — keep waiting
+          if (pathname.startsWith('/perfect/v1/auth/google')) return
+          if (searchParams.has('error') || pathname.includes('/login')) {
+            settle({ error: searchParams.get('error') ?? 'google_failed' })
+          } else {
+            settle({ host: hostname })
+          }
+        } catch {}
+      }
+
+      popup.webContents.on('did-navigate',  (_e, url) => checkUrl(url))
+      popup.webContents.on('will-redirect', (_e, url) => { if (url.includes('perfectelt.com')) checkUrl(url) })
+      popup.on('closed', () => settle({ error: 'cancelled' }))
+      popup.loadURL(`${GOOGLE_AUTH_URL}?${params}`)
+    })
+
+    if ('error' in oauthResult) {
+      return { success: false, error: oauthResult.error }
+    }
+
+    // ── Step 2: read the HttpOnly refreshToken cookie from the session ────
+    const cookieUrl = `https://${oauthResult.host}`
+    let cookies = await session.defaultSession.cookies.get({ name: 'refreshToken', url: cookieUrl })
+
+    if (!cookies.length) {
+      await new Promise(r => setTimeout(r, 400))
+      cookies = await session.defaultSession.cookies.get({ name: 'refreshToken', url: cookieUrl })
+    }
+    if (!cookies.length) {
+      log('[google-auth] refreshToken cookie not found after OAuth')
+      return { success: false, error: 'session_missing' }
+    }
+
+    // ── Step 3: exchange refresh token for access token via /auth/refresh ─
+    const refreshResp = await net.fetch(`${cookieUrl}/perfect/v1/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie':        `refreshToken=${cookies[0].value}`,
+        'Origin':        cookieUrl,
+      },
+      body: '{}',
+    })
+
+    if (!refreshResp.ok) {
+      log(`[google-auth] refresh HTTP ${refreshResp.status}`)
+      return { success: false, error: 'refresh_failed' }
+    }
+
+    const refreshData = await refreshResp.json() as { token?: string }
+    const accessToken = refreshData.token
+    if (!accessToken) return { success: false, error: 'no_access_token' }
+
+    log('[google-auth] OAuth complete — access token obtained')
+    return { success: true, accessToken }
+
+  } catch (err) {
+    log(`[google-auth] error: ${err instanceof Error ? err.message : String(err)}`)
+    return { success: false, error: String(err) }
+  }
+})
+
 // ── Auto-update IPC ───────────────────────────────────────────────────────────
-// SECURITY: UPDATER_TOKEN is NEVER sent via IPC to the renderer.
-// These handlers only trigger actions in the main process.
 
 ipcMain.handle('update:check', (): void => {
   if (!app.isPackaged) {
     sendUpdateStatus({ state: 'error', message: 'Auto-update only works in the packaged app.' })
     return
   }
-  if (!updaterReady) {
-    sendUpdateStatus({ state: 'error', message: 'Updater not configured — UPDATER_TOKEN missing.' })
-    return
-  }
   sendUpdateStatus({ state: 'checking' })
   autoUpdater.checkForUpdates().catch((err) => {
-    sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
+    sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
   })
 })
 

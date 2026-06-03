@@ -23,23 +23,35 @@ class WarehouseStompClient {
   private connHandlers:  Set<ConnectionStateHandler> = new Set()
   private currentToken: string | null = null
   private connected = false
+  private reconnectCount = 0
 
   connect(token: string) {
     if (this.connected && this.currentToken === token) return
     this.disconnect()
     this.currentToken = token
 
-    console.log('[stomp] connecting to', WS_URL)
+    // Diagnostics
+    console.log('[stomp] url:', WS_URL)
+    console.log('[stomp] tokenPresent:', Boolean(token && token.length > 0))
+    console.log('[stomp] reconnectCount:', this.reconnectCount)
 
     this.client = new Client({
-      webSocketFactory: () => new WebSocket(WS_URL),
+      webSocketFactory: () => {
+        const ws = new WebSocket(WS_URL)
+        // Log the WebSocket readyState transitions for diagnostics
+        ws.addEventListener('open',  () => console.log('[stomp] ws open'))
+        ws.addEventListener('close', (e) => console.log(`[stomp] ws close code=${e.code} reason="${e.reason}" wasClean=${e.wasClean}`))
+        ws.addEventListener('error', () => console.error('[stomp] ws error (see network tab)'))
+        return ws
+      },
       connectHeaders: { Authorization: `Bearer ${token}` },
       heartbeatIncoming: 10_000,
       heartbeatOutgoing: 10_000,
       reconnectDelay:    2_000,
-      onConnect: () => {
+      onConnect: (frame) => {
         this.connected = true
-        console.log('[stomp] connected')
+        this.reconnectCount = 0
+        console.log('[stomp] connected, server=', frame.headers['server'] ?? '(unknown)')
         this.notifyConnState(true)
         this.subscribeToQueue()
       },
@@ -50,10 +62,11 @@ class WarehouseStompClient {
         this.notifyConnState(false)
       },
       onStompError: (frame) => {
-        console.error('[stomp] STOMP error:', frame.headers['message'])
+        console.error('[stomp] STOMP error:', frame.headers['message'], frame.body)
       },
       onWebSocketError: (evt) => {
-        console.error('[stomp] WebSocket error', evt)
+        this.reconnectCount++
+        console.error('[stomp] WebSocket error (attempt', this.reconnectCount, ')', evt)
       },
     })
 

@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div style={styles.box}>
           <div style={styles.header}>
             <span style={styles.icon}>⚠</span>
-            <span>Perfect ELT Warehouse — React Error</span>
+            <span>Perfect Electronic — React Error</span>
           </div>
 
           <div style={styles.section}>

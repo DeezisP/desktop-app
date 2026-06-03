@@ -32,12 +32,12 @@ export function Sidebar() {
       <div className="flex items-center gap-2.5 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3.5">
         <img
           src={logo}
-          alt="Perfect ELT"
+          alt="Perfect Electronic"
           className="h-8 w-8 rounded-lg object-cover flex-shrink-0 shadow-sm"
         />
         <div className="min-w-0">
           <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-100 leading-tight truncate">
-            Perfect ELT
+            Perfect Electronic
           </p>
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-tight">
             ระบบคลังสินค้า

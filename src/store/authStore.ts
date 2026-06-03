@@ -44,6 +44,7 @@ interface AuthState {
 
   initialize:      () => Promise<void>
   login:           (username: string, password: string) => Promise<void>
+  loginWithGoogle: () => Promise<void>
   verifyOtp:       (otp: string) => Promise<void>
   resendOtp:       () => Promise<void>
   cancelOtp:       () => void
@@ -119,6 +120,36 @@ export const useAuthStore = create<AuthState>((set, get) => {
         if (eAPI()) { await eAPI()!.saveToken('access_token', accessToken) }
         else { sessionStorage.setItem('access_token', accessToken) }
         set({ token: accessToken, user: user as AuthUser, isAuthenticated: true })
+      } finally {
+        set({ isLoading: false })
+      }
+    },
+
+    async loginWithGoogle() {
+      const api = eAPI()
+      if (!api?.googleLogin) throw new Error('Google login not available')
+      set({ isLoading: true })
+      try {
+        const result = await api.googleLogin()
+        if (!result.success) {
+          if (result.error === 'cancelled') return
+          throw new Error(result.error)
+        }
+        const { accessToken } = result
+        if (api) {
+          await api.saveToken('access_token', accessToken)
+        } else {
+          sessionStorage.setItem('access_token', accessToken)
+        }
+        set({ token: accessToken })
+        const user = await authApi.getMe()
+        set({ user, isAuthenticated: true })
+        console.log('[authStore] Google login successful for', user.username)
+      } catch (err) {
+        eAPI()?.deleteToken('access_token')
+        sessionStorage.removeItem('access_token')
+        set({ token: null })
+        throw err
       } finally {
         set({ isLoading: false })
       }

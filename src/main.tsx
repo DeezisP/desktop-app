@@ -48,7 +48,7 @@ function showCriticalError(title: string, message: string, stack: string) {
   el.innerHTML = `
 <div style="width:100%;max-width:900px;margin:20px auto;background:#1e293b;border:1px solid #ef4444;border-radius:8px;overflow:hidden;">
   <div style="background:#ef4444;color:#fff;padding:12px 20px;font-weight:bold;font-size:15px;display:flex;align-items:center;gap:10px;">
-    <span>⚠</span><span>Perfect ELT Warehouse — ${escHtml(title)}</span>
+    <span>⚠</span><span>Perfect Electronic — ${escHtml(title)}</span>
   </div>
   <div style="padding:16px 20px;border-bottom:1px solid #334155;">
     <div style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:bold;">Message</div>

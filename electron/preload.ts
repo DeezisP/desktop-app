@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { UpdateStatus } from './main'
+import type { UpdateStatus, GoogleLoginResult } from './main'
 
 export type ElectronAPI = {
   saveToken:   (key: string, value: string)  => Promise<boolean>
@@ -14,6 +14,10 @@ export type ElectronAPI = {
   logPath:     ()                            => Promise<string>
   /** Send a native desktop notification via the main process */
   showNotification: (title: string, body?: string) => Promise<void>
+
+  // ── Google OAuth ───────────────────────────────────────────────────────────
+  /** Open Google OAuth popup and return access token on success */
+  googleLogin: () => Promise<GoogleLoginResult>
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   /** Trigger a manual update check (noop in dev mode) */
@@ -39,6 +43,9 @@ const api: ElectronAPI = {
   readLog:     ()           => ipcRenderer.invoke('log:read'),
   logPath:     ()           => ipcRenderer.invoke('log:path'),
   showNotification: (title, body) => ipcRenderer.invoke('notify:show', title, body),
+
+  // ── Google OAuth ───────────────────────────────────────────────────────────
+  googleLogin: () => ipcRenderer.invoke('auth:google'),
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   checkForUpdates: () => ipcRenderer.invoke('update:check'),

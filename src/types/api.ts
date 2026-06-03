@@ -16,6 +16,12 @@ export interface PageResponse<T> {
   numberOfElements: number
 }
 
+// ── Google OAuth result returned from main process ───────────────────────────
+
+export type GoogleLoginResult =
+  | { success: true;  accessToken: string }
+  | { success: false; error: string }
+
 // ── Auto-update status pushed from main process ───────────────────────────────
 
 export type UpdateStatus =
@@ -41,6 +47,9 @@ export interface ElectronAPI {
   readLog:     ()                            => Promise<string>
   logPath:     ()                            => Promise<string>
   showNotification: (title: string, body?: string) => Promise<void>
+
+  // ── Google OAuth ───────────────────────────────────────────────────────────
+  googleLogin: () => Promise<GoogleLoginResult>
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   checkForUpdates: () => Promise<void>

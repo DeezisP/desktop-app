@@ -1,10 +1,10 @@
 {
-  "name": "perfect-elt-warehouse",
+  "name": "perfect-electronic-warehouse",
   "private": true,
   "type": "module",
-  "version": "2.0.5",
-  "description": "Perfect ELT Warehouse Desktop Application",
-  "author": "Perfect ELT",
+  "version": "2.0.7",
+  "description": "Perfect Electronic Warehouse Application",
+  "author": "Perfect Electronic",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",

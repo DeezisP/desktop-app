@@ -289,7 +289,7 @@ function AboutSection() {
 
   return (
     <Section title="เกี่ยวกับ">
-      <Row icon={<Info size={15} />} label="เวอร์ชันแอปพลิเคชัน" description="Perfect ELT Warehouse">
+      <Row icon={<Info size={15} />} label="เวอร์ชันแอปพลิเคชัน" description="Perfect Electronic">
         <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
           {version ?? '…'}
         </span>

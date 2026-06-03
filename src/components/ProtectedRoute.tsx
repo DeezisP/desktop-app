@@ -39,7 +39,7 @@ export function ProtectedRoute({ children }: Props) {
         <div style={styles.box}>
           <div style={styles.header}>
             <span>⏱</span>
-            <span>Perfect ELT Warehouse — Startup Timeout</span>
+            <span>Perfect Electronic — Startup Timeout</span>
           </div>
 
           <div style={styles.section}>
