@@ -133,7 +133,9 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const [expandedId, setExpandedId]     = useState<number | null>(null);
-  const [search, setSearch]             = useState('');
+  const [search, setSearch]                   = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deletingIds, setDeletingIds]   = useState<Set<number>>(new Set());
   const [rematching, setRematching]     = useState(false);
   const [rematchMsg, setRematchMsg]     = useState<{ ok: boolean; text: string } | null>(null);
@@ -347,8 +349,8 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
   // ── Derived state ─────────────────────────────────────────────────────────────
 
   const searchTokens = useMemo(
-    () => search.toLowerCase().trim().split(/\s+/).filter(Boolean),
-    [search],
+    () => debouncedSearch.toLowerCase().trim().split(/\s+/).filter(Boolean),
+    [debouncedSearch],
   );
 
   const sourceCounts = useMemo(() =>
@@ -401,7 +403,12 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => {
+              const v = e.target.value;
+              setSearch(v);
+              if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+              searchTimerRef.current = setTimeout(() => setDebouncedSearch(v), 250);
+            }}
             placeholder="ค้นหา เลขออเดอร์ / พัสดุ / ชื่อ / สินค้า"
             className="flex-1 min-w-0 px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[36px] sm:min-h-0"
           />

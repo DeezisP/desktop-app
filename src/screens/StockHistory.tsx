@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useMemo, type FormEvent } from 'react'
 import { Search } from 'lucide-react'
 import { productsApi } from '../api/warehouse'
 import type { WarehouseProductResponse } from '../types/warehouse'
@@ -37,24 +37,26 @@ export function StockHistory() {
     return <span className="text-blue-500 ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>
   }
 
-  const filtered = products
-    .filter((p) => {
-      if (query && !p.title.toLowerCase().includes(query.toLowerCase())) return false
-      if (showLow && p.availableStock > 5) return false
-      return true
-    })
-    .sort((a, b) => {
-      let av: string | number = 0
-      let bv: string | number = 0
-      if (sortKey === 'title') { av = a.title.toLowerCase(); bv = b.title.toLowerCase() }
-      else if (sortKey === 'updatedAt') { av = a.updatedAt ?? a.createdAt; bv = b.updatedAt ?? b.createdAt }
-      else { av = a[sortKey] as number; bv = b[sortKey] as number }
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
+  const filtered = useMemo(() =>
+    products
+      .filter((p) => {
+        if (query && !p.title.toLowerCase().includes(query.toLowerCase())) return false
+        if (showLow && p.availableStock > 5) return false
+        return true
+      })
+      .sort((a, b) => {
+        let av: string | number = 0
+        let bv: string | number = 0
+        if (sortKey === 'title') { av = a.title.toLowerCase(); bv = b.title.toLowerCase() }
+        else if (sortKey === 'updatedAt') { av = a.updatedAt ?? a.createdAt; bv = b.updatedAt ?? b.createdAt }
+        else { av = a[sortKey] as number; bv = b[sortKey] as number }
+        if (av < bv) return sortDir === 'asc' ? -1 : 1
+        if (av > bv) return sortDir === 'asc' ? 1 : -1
+        return 0
+      }),
+  [products, query, showLow, sortKey, sortDir])
 
-  const lowStockCount = products.filter((p) => p.availableStock <= 5).length
+  const lowStockCount = useMemo(() => products.filter((p) => p.availableStock <= 5).length, [products])
 
   return (
     <div className="space-y-5">

@@ -502,7 +502,7 @@ ipcMain.handle('update:check', (): void => {
 
 ipcMain.handle('update:install', (): void => {
   log('[updater] user requested quitAndInstall')
-  autoUpdater.quitAndInstall(false, true)
+  autoUpdater.quitAndInstall(true, true)  // isSilent=true → no wizard UI; isForceRunAfter=true → relaunch
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

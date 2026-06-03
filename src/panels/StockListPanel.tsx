@@ -1,7 +1,7 @@
 
 
 import {
-  useState, useEffect, useCallback, useMemo, useRef, useDeferredValue,
+  useState, useEffect, useCallback, useMemo, useRef,
 } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -117,8 +117,9 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
 
-  const [search, setSearch]           = useState('');
-  const deferredSearch                = useDeferredValue(search);
+  const [search, setSearch]             = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
@@ -321,7 +322,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
   const groups = useMemo(() => groupProducts(allProducts), [allProducts]);
 
   const filteredGroups = useMemo(() => {
-    const q = deferredSearch.toLowerCase().trim();
+    const q = debouncedSearch.toLowerCase().trim();
     return groups
       .map(group => {
         const parentMatches = !q || group.parentTitle.toLowerCase().includes(q);
@@ -338,7 +339,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
         return { ...group, variations } as ProductGroup;
       })
       .filter(Boolean) as ProductGroup[];
-  }, [groups, deferredSearch]);
+  }, [groups, debouncedSearch]);
 
   // Use `search` (not deferred) so the display mode switches the moment the user types,
   // preventing the "shows 20 unfiltered items" flash during the deferred lag.
@@ -676,7 +677,12 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
               <input
                 type="text"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => {
+                  const v = e.target.value;
+                  setSearch(v);
+                  if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                  searchTimerRef.current = setTimeout(() => setDebouncedSearch(v), 250);
+                }}
                 placeholder="ค้นหาชื่อสินค้า หรือ variation..."
                 className="w-full pl-8 pr-3 py-2.5 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
@@ -695,7 +701,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
               <span className="xs:hidden">นำเข้า</span>
             </button>
             <button
-              onClick={() => { setSearch(''); loadAll(); }}
+              onClick={() => { setSearch(''); setDebouncedSearch(''); loadAll(); }}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 whitespace-nowrap">
               <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
