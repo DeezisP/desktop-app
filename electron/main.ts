@@ -25,8 +25,48 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const PRODUCTION_ORIGIN   = 'https://perfectelt.com'
 
 const tokenStore = new Map<string, Buffer>()
-let mainWindow: BrowserWindow | null = null
-let logPath: string | null = null
+let mainWindow:    BrowserWindow | null = null
+let logPath:       string | null = null
+let tokenFilePath: string | null = null
+
+// ── Token persistence (survives app restarts) ─────────────────────────────────
+// Buffers are stored as base64 in a 0600 JSON file inside userData.
+// safeStorage-encrypted bytes remain opaque on disk; only this app can decrypt.
+
+function initTokenFile() {
+  try {
+    tokenFilePath = path.join(app.getPath('userData'), 'tokens.enc')
+    log('[token] persist file: ' + tokenFilePath)
+  } catch (e) {
+    log('[token] initTokenFile error: ' + e)
+  }
+}
+
+function persistTokens() {
+  if (!tokenFilePath) return
+  try {
+    const obj: Record<string, string> = {}
+    for (const [k, buf] of tokenStore.entries()) obj[k] = buf.toString('base64')
+    fs.writeFileSync(tokenFilePath, JSON.stringify(obj), { mode: 0o600 })
+  } catch (e) {
+    log('[token] persist error: ' + e)
+  }
+}
+
+function loadPersistedTokens() {
+  if (!tokenFilePath) return
+  try {
+    if (!fs.existsSync(tokenFilePath)) return
+    const raw = fs.readFileSync(tokenFilePath, 'utf8')
+    const obj = JSON.parse(raw) as Record<string, string>
+    for (const [k, b64] of Object.entries(obj)) {
+      if (ALLOWED_KEYS.has(k)) tokenStore.set(k, Buffer.from(b64, 'base64'))
+    }
+    log('[token] loaded persisted keys: ' + Object.keys(obj).join(', '))
+  } catch (e) {
+    log('[token] load error: ' + e)
+  }
+}
 
 // ── File logger ───────────────────────────────────────────────────────────────
 
@@ -339,6 +379,7 @@ ipcMain.handle('token:save', (_ev, key: string, value: string): boolean => {
   } else {
     tokenStore.set(key, Buffer.from(value, 'utf8'))
   }
+  persistTokens()
   return true
 })
 
@@ -352,6 +393,7 @@ ipcMain.handle('token:get', (_ev, key: string): string | null => {
       : buf.toString('utf8')
   } catch {
     tokenStore.delete(key)
+    persistTokens()
     return null
   }
 })
@@ -359,10 +401,15 @@ ipcMain.handle('token:get', (_ev, key: string): string | null => {
 ipcMain.handle('token:delete', (_ev, key: string): boolean => {
   if (!ALLOWED_KEYS.has(key)) return false
   tokenStore.delete(key)
+  persistTokens()
   return true
 })
 
-ipcMain.handle('token:clear', (): boolean => { tokenStore.clear(); return true })
+ipcMain.handle('token:clear', (): boolean => {
+  tokenStore.clear()
+  persistTokens()
+  return true
+})
 
 ipcMain.handle('app:version', (): string => app.getVersion())
 
@@ -520,6 +567,8 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   initLogFile()
+  initTokenFile()
+  loadPersistedTokens()
   setupAutoUpdater()
   buildMenu()
   createWindow()
