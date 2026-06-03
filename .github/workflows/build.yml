@@ -46,9 +46,17 @@ jobs:
         # --publish never: build artifacts locally; the release step below uploads them.
         # electron-builder always writes latest.yml alongside the .exe when building
         # a full NSIS target (not --dir). Both files are required by electron-updater.
+        #
+        # GITHUB_UPDATER_TOKEN is a Personal Access Token with read:packages or
+        # repo (read) scope stored as a repository secret. It is injected here so
+        # that the packaged app can authenticate against the private GitHub Releases
+        # feed at runtime. The token is ONLY readable inside the Electron main
+        # process via process.env.GITHUB_UPDATER_TOKEN — it is never forwarded to
+        # the renderer, preload, or contextBridge.
         run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_UPDATER_TOKEN: ${{ secrets.GITHUB_UPDATER_TOKEN }}
 
       - name: List release artifacts (debug)
         run: dir release

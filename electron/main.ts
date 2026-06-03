@@ -28,6 +28,10 @@ const tokenStore = new Map<string, Buffer>()
 let mainWindow: BrowserWindow | null = null
 let logPath: string | null = null
 
+// Whether the updater was configured successfully and can check for updates.
+// Set to false when the GitHub token is missing or the app is in dev mode.
+let updaterReady = false
+
 // ── File logger ───────────────────────────────────────────────────────────────
 
 function initLogFile() {
@@ -76,6 +80,9 @@ process.on('unhandledRejection', (reason: unknown) => {
 // Pushes status objects to the renderer via the 'update:status' IPC channel.
 // State machine: idle → checking → available | not-available | error
 //                available → downloading → downloaded → (user clicks install)
+//
+// Security: GITHUB_UPDATER_TOKEN is read only in the main process and is
+// NEVER forwarded to the renderer, preload, contextBridge, or any IPC reply.
 
 export type UpdateStatus =
   | { state: 'idle' }
@@ -91,13 +98,69 @@ function sendUpdateStatus(status: UpdateStatus) {
   mainWindow?.webContents.send('update:status', status)
 }
 
-function setupAutoUpdater() {
-  // Disable electron-updater's built-in logger; we capture everything via events
-  autoUpdater.logger = null
+// Map raw electron-updater / HTTP error strings to user-friendly messages.
+// Never exposes the raw token or Authorization header in the output.
+function friendlyUpdateError(err: Error | unknown): string {
+  const raw = (err instanceof Error ? err.message : String(err)) ?? ''
+  const lower = raw.toLowerCase()
 
-  // Download silently in the background; do NOT auto-install without user consent
-  autoUpdater.autoDownload    = true
-  autoUpdater.autoInstallOnAppQuit = false
+  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('bad credentials')) {
+    return 'Authentication failed — the updater token may be invalid or expired'
+  }
+  if (lower.includes('403') || lower.includes('forbidden')) {
+    return 'Repository not accessible — token may lack the required permissions'
+  }
+  if (lower.includes('404') || lower.includes('not found')) {
+    return 'No releases found — verify the repository owner and name'
+  }
+  if (lower.includes('429') || lower.includes('rate limit')) {
+    return 'GitHub rate limit reached — try again in a few minutes'
+  }
+  if (lower.includes('enotfound') || lower.includes('econnrefused') || lower.includes('network') || lower.includes('socket')) {
+    return 'Update server unreachable — check your network connection'
+  }
+  if (lower.includes('certificate') || lower.includes('ssl') || lower.includes('tls')) {
+    return 'TLS/SSL error connecting to update server'
+  }
+  return raw || 'Unknown update error'
+}
+
+function setupAutoUpdater() {
+  // ── Diagnostics — log config, never log token value ─────────────────────
+  const updaterToken = process.env['GITHUB_UPDATER_TOKEN']
+  const tokenPresent = Boolean(updaterToken && updaterToken.trim().length > 0)
+
+  log('[updater] provider=github')
+  log('[updater] owner=DeezisP')
+  log('[updater] repo=desktop-app')
+  log('[updater] releaseType=release')
+  log(`[updater] tokenPresent=${tokenPresent}`)
+
+  // ── Token guard ──────────────────────────────────────────────────────────
+  if (!tokenPresent) {
+    log('[updater] WARN: GITHUB_UPDATER_TOKEN is not set — update checks disabled')
+    log('[updater] Set GITHUB_UPDATER_TOKEN in the system environment to enable updates')
+    // Send an error state so the Settings UI shows a clear message, not a spinner
+    sendUpdateStatus({
+      state:   'error',
+      message: 'GitHub updater token missing — set GITHUB_UPDATER_TOKEN to enable updates',
+    })
+    updaterReady = false
+    return
+  }
+
+  // ── Configure authentication ─────────────────────────────────────────────
+  // addAuthHeader merges the token into requestHeaders for every HTTP request
+  // made by electron-updater (releases feed + asset downloads).
+  // The token never leaves the main process.
+  autoUpdater.addAuthHeader(`Bearer ${updaterToken}`)
+
+  // ── Other settings ───────────────────────────────────────────────────────
+  autoUpdater.logger              = null    // we capture everything via events
+  autoUpdater.autoDownload        = true    // background download, no prompt
+  autoUpdater.autoInstallOnAppQuit = false  // user must click "Restart and Install"
+
+  // ── Event handlers ───────────────────────────────────────────────────────
 
   autoUpdater.on('checking-for-update', () => {
     sendUpdateStatus({ state: 'checking' })
@@ -105,11 +168,11 @@ function setupAutoUpdater() {
 
   autoUpdater.on('update-available', (info) => {
     sendUpdateStatus({
-      state: 'available',
-      version: String(info.version),
+      state:        'available',
+      version:      String(info.version),
       releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
     })
-    // autoDownload=true means the download starts automatically here
+    // autoDownload=true means the download starts automatically after this event
   })
 
   autoUpdater.on('update-not-available', (info) => {
@@ -128,7 +191,6 @@ function setupAutoUpdater() {
 
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ state: 'downloaded', version: String(info.version) })
-    // Show a system notification so the user is aware even if Settings isn't open
     try {
       if (Notification.isSupported()) {
         new Notification({
@@ -141,9 +203,11 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (err) => {
-    const msg = err?.message ?? String(err)
-    sendUpdateStatus({ state: 'error', message: msg })
+    sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
   })
+
+  updaterReady = true
+  log('[updater] initialised successfully')
 }
 
 // ── App menu ──────────────────────────────────────────────────────────────────
@@ -173,22 +237,23 @@ function buildMenu() {
         {
           label: 'Check for Updates…',
           click: () => {
-            if (app.isPackaged) {
-              sendUpdateStatus({ state: 'checking' })
-              autoUpdater.checkForUpdates().catch((err) => {
-                sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
-              })
-            } else {
+            if (!app.isPackaged) {
               log('[updater] skipping check — app is not packaged (dev mode)')
-              mainWindow?.webContents.send('update:status', {
-                state: 'error',
-                message: 'Auto-update is only available in the packaged app, not in dev mode.',
-              })
+              sendUpdateStatus({ state: 'error', message: 'Auto-update only works in the packaged app.' })
+              return
             }
+            if (!updaterReady) {
+              sendUpdateStatus({ state: 'error', message: 'Updater not configured — GITHUB_UPDATER_TOKEN missing.' })
+              return
+            }
+            sendUpdateStatus({ state: 'checking' })
+            autoUpdater.checkForUpdates().catch((err) => {
+              sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
+            })
           },
         },
         { type: 'separator' },
-        // ── DevTools (manual access only — NOT auto-opened on startup) ───────
+        // ── DevTools (manual, NOT auto-opened on startup) ────────────────────
         {
           label: 'Open DevTools',
           accelerator: 'CmdOrCtrl+Shift+I',
@@ -199,28 +264,18 @@ function buildMenu() {
           label: 'View Error Log',
           click: () => {
             if (!logPath) return
-            if (fs.existsSync(logPath)) {
-              shell.openPath(logPath)
-            } else {
-              shell.openPath(path.dirname(logPath))
-            }
+            fs.existsSync(logPath)
+              ? shell.openPath(logPath)
+              : shell.openPath(path.dirname(logPath))
           },
         },
         {
           label: 'Show Log Location',
-          click: () => {
-            if (logPath) shell.showItemInFolder(logPath)
-          },
+          click: () => { if (logPath) shell.showItemInFolder(logPath) },
         },
         { type: 'separator' },
-        {
-          label: `App Version: ${app.getVersion()}`,
-          enabled: false,
-        },
-        {
-          label: `Log: ${logPath ?? 'not initialized'}`,
-          enabled: false,
-        },
+        { label: `App Version: ${app.getVersion()}`, enabled: false },
+        { label: `Log: ${logPath ?? 'not initialized'}`, enabled: false },
       ],
     },
   ]
@@ -233,7 +288,7 @@ function buildMenu() {
 function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.mjs')
   const indexPath   = path.join(__dirname, '../dist/index.html')
-  const iconPath = path.join(
+  const iconPath    = path.join(
     __dirname,
     '../resources',
     process.platform === 'win32' ? 'icon.ico' : 'perfect-logo.png',
@@ -264,29 +319,27 @@ function createWindow() {
     },
   })
 
-  // ── Renderer diagnostics ────────────────────────────────────────────────────
-
   mainWindow.once('ready-to-show', () => {
     log('[main] ready-to-show → showing window')
     mainWindow?.show()
     mainWindow?.focus()
 
-    // ── Auto-update check after window is visible ─────────────────────────
-    // Only run in packaged builds; dev mode has no installer channel.
-    if (app.isPackaged) {
+    // Startup update check — packaged + token present only
+    if (app.isPackaged && updaterReady) {
       setTimeout(() => {
         log('[updater] auto-checking for updates on startup')
         autoUpdater.checkForUpdates().catch((err) => {
           log(`[updater] startup check failed: ${err?.message ?? err}`)
-          sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+          sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
         })
-      }, 3000) // 3-second delay so the UI settles before the check starts
+      }, 3000)
+    } else if (!app.isPackaged) {
+      log('[updater] skipping startup check — dev mode')
     } else {
-      log('[updater] skipping startup check — app is not packaged (dev mode)')
+      log('[updater] skipping startup check — updater not ready (token missing)')
     }
   })
 
-  // Fallback: show after 5 s regardless — prevents permanent blank window
   const showFallback = setTimeout(() => {
     if (mainWindow && !mainWindow.isVisible()) {
       log('[main] WARN: ready-to-show never fired — forcing show()')
@@ -297,56 +350,34 @@ function createWindow() {
 
   mainWindow.once('show', () => clearTimeout(showFallback))
 
-  mainWindow.webContents.on(
-    'did-fail-load',
-    (_ev, code, desc, url) => {
-      log(`[renderer] did-fail-load code=${code} desc="${desc}" url="${url}"`)
-      if (mainWindow && !mainWindow.isVisible()) {
-        mainWindow.show()
-        mainWindow.focus()
-      }
-    },
-  )
+  mainWindow.webContents.on('did-fail-load', (_ev, code, desc, url) => {
+    log(`[renderer] did-fail-load code=${code} desc="${desc}" url="${url}"`)
+    if (mainWindow && !mainWindow.isVisible()) { mainWindow.show(); mainWindow.focus() }
+  })
 
   mainWindow.webContents.on('render-process-gone', (_ev, details) => {
     log(`[renderer] render-process-gone: ${JSON.stringify(details)}`)
   })
 
-  mainWindow.webContents.on('did-finish-load', () => {
-    log('[renderer] did-finish-load')
-  })
+  mainWindow.webContents.on('did-finish-load',   () => log('[renderer] did-finish-load'))
+  mainWindow.webContents.on('did-start-loading', () => log('[renderer] did-start-loading'))
+  mainWindow.webContents.on('dom-ready',         () => log('[renderer] dom-ready'))
 
-  mainWindow.webContents.on('did-start-loading', () => {
-    log('[renderer] did-start-loading')
-  })
-
-  mainWindow.webContents.on('dom-ready', () => {
-    log('[renderer] dom-ready')
-  })
-
-  // Mirror every renderer console message to the log file
   mainWindow.webContents.on('console-message', (_ev, level, message, line, source) => {
     const lvl = ['verbose', 'info', 'warning', 'error'][level] ?? `level${level}`
     log(`[renderer][${lvl}] ${message}  (${source}:${line})`)
   })
 
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+  mainWindow.on('closed', () => { mainWindow = null })
 
-  // ── CORS: spoof Origin so backend CORS allows file:// requests ──────────────
-
+  // CORS: spoof Origin so backend CORS allows file:// requests
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders }
-    if (!headers['Origin'] && !headers['origin']) {
-      headers['Origin'] = PRODUCTION_ORIGIN
-    }
+    if (!headers['Origin'] && !headers['origin']) headers['Origin'] = PRODUCTION_ORIGIN
     callback({ requestHeaders: headers })
   })
 
-  // NOTE: DevTools are NOT auto-opened. Access via Help → Open DevTools (Ctrl+Shift+I).
-
-  // ── Load renderer ───────────────────────────────────────────────────────────
+  // NOTE: DevTools are NOT auto-opened. Use Help → Open DevTools (Ctrl+Shift+I).
 
   if (VITE_DEV_SERVER_URL) {
     log('[main] loading dev server: ' + VITE_DEV_SERVER_URL)
@@ -391,72 +422,55 @@ ipcMain.handle('token:delete', (_ev, key: string): boolean => {
   return true
 })
 
-ipcMain.handle('token:clear', (): boolean => {
-  tokenStore.clear()
-  return true
-})
+ipcMain.handle('token:clear', (): boolean => { tokenStore.clear(); return true })
 
 ipcMain.handle('app:version', (): string => app.getVersion())
 
-// Renderer → log file bridge
 ipcMain.handle('log:error', (_ev, message: string, stack: string): void => {
   log(`[renderer][error-ipc] ${message}`)
   if (stack) log(`[renderer][stack] ${stack}`)
 })
 
-// Open the log file directly (returns true on success)
 ipcMain.handle('log:open', (): boolean => {
   if (!logPath) return false
   shell.openPath(logPath)
   return true
 })
 
-// Return the full log contents to the renderer
 ipcMain.handle('log:read', (): string => {
   if (!logPath || !fs.existsSync(logPath)) return '(no log file)'
-  try {
-    return fs.readFileSync(logPath, 'utf8')
-  } catch (e) {
-    return `(failed to read: ${e})`
-  }
+  try { return fs.readFileSync(logPath, 'utf8') } catch (e) { return `(failed to read: ${e})` }
 })
 
-// Return the log file path
 ipcMain.handle('log:path', (): string => logPath ?? '(not initialized)')
-
-// ── Desktop notifications ─────────────────────────────────────────────────────
 
 ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   try {
-    if (Notification.isSupported()) {
-      new Notification({ title, body: body ?? '', silent: true }).show()
-    }
-  } catch (e) {
-    log(`[main] notify:show error: ${e}`)
-  }
+    if (Notification.isSupported()) new Notification({ title, body: body ?? '', silent: true }).show()
+  } catch (e) { log(`[main] notify:show error: ${e}`) }
 })
 
 // ── Auto-update IPC ───────────────────────────────────────────────────────────
+// SECURITY: GITHUB_UPDATER_TOKEN is NEVER sent via IPC to the renderer.
+// These handlers only trigger actions in the main process.
 
-// Renderer requests a manual update check
 ipcMain.handle('update:check', (): void => {
   if (!app.isPackaged) {
-    mainWindow?.webContents.send('update:status', {
-      state: 'error',
-      message: 'Auto-update is only available in the packaged app, not in dev mode.',
-    } satisfies UpdateStatus)
+    sendUpdateStatus({ state: 'error', message: 'Auto-update only works in the packaged app.' })
+    return
+  }
+  if (!updaterReady) {
+    sendUpdateStatus({ state: 'error', message: 'Updater not configured — GITHUB_UPDATER_TOKEN missing.' })
     return
   }
   sendUpdateStatus({ state: 'checking' })
   autoUpdater.checkForUpdates().catch((err) => {
-    sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+    sendUpdateStatus({ state: 'error', message: friendlyUpdateError(err) })
   })
 })
 
-// Renderer requests quit-and-install after update is downloaded
 ipcMain.handle('update:install', (): void => {
   log('[updater] user requested quitAndInstall')
-  // isSilent=false shows a progress UI; isForceRunAfter=true relaunches the app
   autoUpdater.quitAndInstall(false, true)
 })
 
