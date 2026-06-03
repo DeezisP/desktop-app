@@ -57,7 +57,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PerfectELTWarehouseSetup
+          name: PerfectElectronicWarehouseSetup
           path: |
             release/*.exe
             release/latest.yml
@@ -73,7 +73,7 @@ jobs:
           files: |
             release/*.exe
             release/latest.yml
-          name: Perfect ELT Warehouse ${{ github.ref_name }}
+          name: Perfect Electronic Warehouse ${{ github.ref_name }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -554,6 +554,13 @@ ipcMain.handle('update:install', (): void => {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+// Set the Windows Application User Model ID so that notifications, the taskbar
+// button, and safeStorage all display "Perfect Electronic" — not the default
+// "electron.app.Perfect Electronic" fallback.
+if (process.platform === 'win32') {
+  app.setAppUserModelId('Perfect Electronic')
+}
+
 // Single-instance lock: if a second instance starts, focus the existing window.
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
