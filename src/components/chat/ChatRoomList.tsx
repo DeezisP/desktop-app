@@ -110,15 +110,17 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   }
 
   return (
-    <div className="flex flex-col overflow-y-auto">
-      {rooms.map((room: ChatRoom) => (
-        <RoomItem
-          key={room.id}
-          room={room}
-          isActive={room.id === activeRoomId}
-          onClick={() => onSelectRoom(room.id)}
-        />
-      ))}
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        {rooms.map((room: ChatRoom) => (
+          <RoomItem
+            key={room.id}
+            room={room}
+            isActive={room.id === activeRoomId}
+            onClick={() => onSelectRoom(room.id)}
+          />
+        ))}
+      </div>
     </div>
   )
 })
