@@ -18,7 +18,7 @@ interface ChatState {
   loadingRooms: boolean
   loadingMessages: Record<number, boolean>
 
-  setRooms: (rooms: ChatRoom[]) => void
+  setRooms: (rooms: ChatRoom[] | null | undefined) => void
   setActiveRoom: (roomId: number | null) => void
   prependMessages: (roomId: number, messages: ChatMessage[], nextCursor: string | null, hasMore: boolean) => void
   appendMessage: (message: ChatMessage) => void
@@ -36,7 +36,7 @@ interface ChatState {
   setCursor: (roomId: number, cursor: string | null, hasMore: boolean) => void
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>((set) => ({
   rooms: [],
   messages: {},
   cursors: {},
@@ -48,66 +48,68 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadingRooms: false,
   loadingMessages: {},
 
+  // Always coerce to array — guards against null/undefined from API
   setRooms(rooms) {
-    set({ rooms })
+    set({ rooms: Array.isArray(rooms) ? rooms : [] })
   },
 
   setActiveRoom(roomId) {
     set({ activeRoomId: roomId })
   },
 
-  // Called when loading history (older messages prepended at top)
   prependMessages(roomId, messages, nextCursor, hasMore) {
     set((s) => {
+      const safeMessages = Array.isArray(messages) ? messages : []
       const existing = s.messages[roomId] ?? []
       const existingIds = new Set(existing.map((m) => m.id))
-      const deduped = messages.filter((m) => !existingIds.has(m.id))
+      const deduped = safeMessages.filter((m) => !existingIds.has(m.id))
       return {
-        messages: { ...s.messages, [roomId]: [...deduped, ...existing] },
-        cursors: { ...s.cursors, [roomId]: nextCursor },
-        hasMore: { ...s.hasMore, [roomId]: hasMore },
+        messages: { ...(s.messages ?? {}), [roomId]: [...deduped, ...existing] },
+        cursors: { ...(s.cursors ?? {}), [roomId]: nextCursor },
+        hasMore: { ...(s.hasMore ?? {}), [roomId]: hasMore },
       }
     })
   },
 
-  // Called when a new message arrives via STOMP or initial load (append newest)
   appendMessage(message) {
     set((s) => {
-      const existing = s.messages[message.room.id] ?? []
+      const roomId = message?.room?.id
+      if (!roomId) return {}
+      const existing = (s.messages ?? {})[roomId] ?? []
       if (existing.some((m) => m.id === message.id || m.clientMessageId === message.clientMessageId)) {
         return {}
       }
       const updated = [...existing, message]
-      // Update room preview
-      const rooms = s.rooms.map((r) =>
-        r.id === message.room.id
+      const rooms = (s.rooms ?? []).map((r) =>
+        r.id === roomId
           ? { ...r, lastMessage: message.messageText, lastMessageAt: message.sentAt }
           : r,
       )
       return {
-        messages: { ...s.messages, [message.room.id]: updated },
+        messages: { ...(s.messages ?? {}), [roomId]: updated },
         rooms,
       }
     })
   },
 
-  // Replace optimistic/pending message with server-confirmed one
   replaceMessage(clientMessageId, message) {
     set((s) => {
-      const existing = s.messages[message.room.id] ?? []
+      const roomId = message?.room?.id
+      if (!roomId) return {}
+      const existing = (s.messages ?? {})[roomId] ?? []
       if (existing.some((m) => m.id === message.id)) return {}
       const updated = existing.map((m) =>
         m.clientMessageId === clientMessageId ? message : m,
       )
-      return { messages: { ...s.messages, [message.room.id]: updated } }
+      return { messages: { ...(s.messages ?? {}), [roomId]: updated } }
     })
   },
 
   softDeleteMessage(messageId) {
     set((s) => {
       const updated: Record<number, ChatMessage[]> = {}
-      for (const [rid, msgs] of Object.entries(s.messages)) {
-        updated[Number(rid)] = msgs.map((m) =>
+      for (const [rid, msgs] of Object.entries(s.messages ?? {})) {
+        updated[Number(rid)] = (Array.isArray(msgs) ? msgs : []).map((m) =>
           m.id === messageId ? { ...m, isDeleted: true, messageText: '' } : m,
         )
       }
@@ -117,7 +119,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   updateRoomPreview(roomId, lastMessage, lastMessageAt) {
     set((s) => ({
-      rooms: s.rooms.map((r) =>
+      rooms: (s.rooms ?? []).map((r) =>
         r.id === roomId ? { ...r, lastMessage, lastMessageAt } : r,
       ),
     }))
@@ -125,38 +127,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   decrementUnread(roomId) {
     set((s) => ({
-      rooms: s.rooms.map((r) =>
-        r.id === roomId ? { ...r, unreadCount: Math.max(0, r.unreadCount - 1) } : r,
+      rooms: (s.rooms ?? []).map((r) =>
+        r.id === roomId ? { ...r, unreadCount: Math.max(0, (r.unreadCount ?? 0) - 1) } : r,
       ),
     }))
   },
 
   clearUnread(roomId) {
     set((s) => ({
-      rooms: s.rooms.map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r)),
+      rooms: (s.rooms ?? []).map((r) => (r.id === roomId ? { ...r, unreadCount: 0 } : r)),
     }))
   },
 
   setTyping(roomId, displayName, isTyping) {
     set((s) => {
-      const current = new Set(s.typing[roomId] ?? [])
+      const current = new Set(s.typing?.[roomId] ?? [])
       if (isTyping) current.add(displayName)
       else current.delete(displayName)
-      return { typing: { ...s.typing, [roomId]: current } }
+      return { typing: { ...(s.typing ?? {}), [roomId]: current } }
     })
   },
 
   setPresence(userId, online) {
-    set((s) => ({ presence: { ...s.presence, [userId]: online } }))
+    set((s) => ({ presence: { ...(s.presence ?? {}), [userId]: online } }))
   },
 
   addToQueue(msg) {
-    set((s) => ({ outboundQueue: [...s.outboundQueue, msg] }))
+    set((s) => ({ outboundQueue: [...(s.outboundQueue ?? []), msg] }))
   },
 
   removeFromQueue(clientMessageId) {
     set((s) => ({
-      outboundQueue: s.outboundQueue.filter((m) => m.clientMessageId !== clientMessageId),
+      outboundQueue: (s.outboundQueue ?? []).filter((m) => m.clientMessageId !== clientMessageId),
     }))
   },
 
@@ -165,18 +167,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setLoadingMessages(roomId, v) {
-    set((s) => ({ loadingMessages: { ...s.loadingMessages, [roomId]: v } }))
+    set((s) => ({ loadingMessages: { ...(s.loadingMessages ?? {}), [roomId]: v } }))
   },
 
   setCursor(roomId, cursor, hasMore) {
     set((s) => ({
-      cursors: { ...s.cursors, [roomId]: cursor },
-      hasMore: { ...s.hasMore, [roomId]: hasMore },
+      cursors: { ...(s.cursors ?? {}), [roomId]: cursor },
+      hasMore: { ...(s.hasMore ?? {}), [roomId]: hasMore },
     }))
   },
 }))
 
-// Selector helpers
+// Selector helpers — safe against undefined store state
 export const selectSortedRooms = (s: ChatState) =>
   [...(s.rooms ?? [])].sort((a, b) => {
     if (!a.lastMessageAt && !b.lastMessageAt) return 0

@@ -72,9 +72,11 @@ export function useChat() {
     setLoadingRooms(true)
     try {
       const rooms = await chatApi.getRooms()
-      setRooms(rooms)
+      // chatApi already normalizes to [], double-guard here for safety
+      setRooms(Array.isArray(rooms) ? rooms : [])
     } catch (err) {
       console.error('[useChat] failed to load rooms', err)
+      setRooms([])
     } finally {
       setLoadingRooms(false)
     }

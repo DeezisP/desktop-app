@@ -21,12 +21,12 @@ function EmptyRoomPlaceholder() {
 
 export default function Chat() {
   const activeRoomId = useChatStore((s) => s.activeRoomId)
-  const rooms = useChatStore((s) => s.rooms)
+  const rooms = useChatStore((s) => s.rooms ?? [])
   const totalUnread = useChatStore(selectTotalUnread)
   const { loadRooms, loadMessages, sendMessage, notifyTyping, markRoomRead } = useChat()
 
   const setActiveRoom = useChatStore((s) => s.setActiveRoom)
-  const messages = useChatStore((s) => (activeRoomId ? s.messages[activeRoomId] : undefined))
+  const messages = useChatStore((s) => (activeRoomId ? (s.messages ?? {})[activeRoomId] : undefined))
 
   const activeRoom = rooms.find((r) => r.id === activeRoomId)
 
