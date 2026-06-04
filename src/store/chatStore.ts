@@ -54,7 +54,20 @@ export const useChatStore = create<ChatState>((set) => ({
 
   // Always coerce to array — guards against null/undefined from API
   setRooms(rooms) {
-    set({ rooms: Array.isArray(rooms) ? rooms : [] })
+    const safeRooms = Array.isArray(rooms) ? rooms : []
+    
+    // Audit log
+    console.log('[chatStore] setRooms: received', safeRooms.length, 'rooms')
+    safeRooms.forEach((r, idx) => {
+      if (!r.name || r.name.trim() === '') {
+        console.warn(`[chatStore] Room ${idx} (id=${r.id}) has empty name - will use fallback`)
+      }
+      if (!r.id) {
+        console.error(`[chatStore] Room ${idx} missing id - this is invalid`)
+      }
+    })
+    
+    set({ rooms: safeRooms })
   },
 
   setActiveRoom(roomId) {

@@ -30,6 +30,16 @@ const RoomItem = memo(function RoomItem({
   isActive: boolean
   onClick: () => void
 }) {
+  // Audit: Log every room item render to catch naming issues
+  console.log(`[RoomItem] rendering room ${room.id}: name="${room.name}" isGuest=${!!room.guestToken}`)
+  
+  // Defensive: Ensure room has valid display name
+  const displayName = room.name?.trim() 
+    ? room.name 
+    : room.guestToken 
+      ? `Guest (${room.guestToken.substring(0, 8)}...)`
+      : `Room #${room.id}`
+  
   return (
     <button
       onClick={onClick}
@@ -64,7 +74,7 @@ const RoomItem = memo(function RoomItem({
                 : 'text-zinc-800 dark:text-zinc-100'
             }`}
           >
-            {room.name || `ห้อง #${room.id}`}
+            {displayName}
           </span>
           <span className="text-[10px] text-zinc-400 dark:text-zinc-500 flex-shrink-0">
             {formatRelativeTime(room.lastMessageAt)}
