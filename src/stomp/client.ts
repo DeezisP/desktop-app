@@ -1,6 +1,8 @@
 import { Client, type StompSubscription, type IMessage } from '@stomp/stompjs'
 import type { WarehouseQueueEvent } from '../types/warehouse'
 
+type GenericMessageHandler = (msg: IMessage) => void
+
 // sockjs-client was removed because it bundles Node.js require("events") and
 // require("crypto") which throw in Electron's renderer (nodeIntegration: false).
 // Spring's SockJS endpoint exposes a native WebSocket at the /websocket sub-path.
@@ -24,6 +26,9 @@ class WarehouseStompClient {
   private currentToken: string | null = null
   private connected = false
   private reconnectCount = 0
+
+  // Generic topic subscriptions (chat and other modules)
+  private genericSubs: Map<string, { handler: GenericMessageHandler; sub: StompSubscription | null }> = new Map()
 
   connect(token: string) {
     if (this.connected && this.currentToken === token) return
@@ -54,6 +59,7 @@ class WarehouseStompClient {
         console.log('[stomp] connected, server=', frame.headers['server'] ?? '(unknown)')
         this.notifyConnState(true)
         this.subscribeToQueue()
+        this.resubscribeGeneric()
       },
       onDisconnect: () => {
         this.connected    = false
@@ -93,7 +99,54 @@ class WarehouseStompClient {
     console.log('[stomp] subscribed to', WAREHOUSE_QUEUE_TOPIC)
   }
 
+  private resubscribeGeneric() {
+    if (!this.client || !this.connected) return
+    this.genericSubs.forEach((entry, topic) => {
+      entry.sub = this.client!.subscribe(topic, entry.handler)
+      console.log('[stomp] re-subscribed generic topic:', topic)
+    })
+  }
+
+  /** Subscribe to any STOMP topic. Returns an unsubscribe function. */
+  subscribe(topic: string, handler: GenericMessageHandler): () => void {
+    const existing = this.genericSubs.get(topic)
+    if (existing) {
+      existing.handler = handler
+      return () => this.unsubscribeTopic(topic)
+    }
+    const entry: { handler: GenericMessageHandler; sub: StompSubscription | null } = {
+      handler,
+      sub: null,
+    }
+    if (this.client && this.connected) {
+      entry.sub = this.client.subscribe(topic, handler)
+      console.log('[stomp] subscribed generic topic:', topic)
+    }
+    this.genericSubs.set(topic, entry)
+    return () => this.unsubscribeTopic(topic)
+  }
+
+  private unsubscribeTopic(topic: string) {
+    const entry = this.genericSubs.get(topic)
+    if (entry) {
+      entry.sub?.unsubscribe()
+      this.genericSubs.delete(topic)
+      console.log('[stomp] unsubscribed generic topic:', topic)
+    }
+  }
+
+  /** Publish a message to a STOMP destination. No-op if not connected. */
+  publish(destination: string, body: string): void {
+    if (!this.client || !this.connected) {
+      console.warn('[stomp] publish skipped (not connected):', destination)
+      return
+    }
+    this.client.publish({ destination, body })
+  }
+
   disconnect() {
+    this.genericSubs.forEach((entry) => entry.sub?.unsubscribe())
+    this.genericSubs.clear()
     this.subscription?.unsubscribe()
     this.subscription = null
     this.client?.deactivate()

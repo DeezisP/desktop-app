@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login }          from './screens/Login'
 import { StockHistory }   from './screens/StockHistory'
 import Settings           from './screens/Settings'
+import Chat               from './screens/Chat'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
 import PackingPanel        from './panels/PackingPanel'
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
             <Route path="history"     element={<Padded><StockHistory /></Padded>} />
+            <Route path="chat"        element={<Chat />} />
             <Route path="settings"    element={<Settings />} />
           </Route>
         </Routes>

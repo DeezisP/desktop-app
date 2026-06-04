@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
 import {
   ArrowDownToLine, Package, ScanBarcode, Boxes,
-  Tag, History, Settings, LogOut,
+  Tag, History, Settings, LogOut, MessageSquare,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { useChatStore, selectTotalUnread } from '../store/chatStore'
 import logo from '../assets/logo.png'
 
 interface NavItem {
@@ -11,6 +12,17 @@ interface NavItem {
   label: string
   icon: React.ReactNode
   end?: boolean
+  badge?: React.ReactNode
+}
+
+function ChatBadge() {
+  const count = useChatStore(selectTotalUnread)
+  if (count === 0) return null
+  return (
+    <span className="ml-auto flex-shrink-0 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[9px] font-bold flex items-center justify-center">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
 }
 
 const NAV: NavItem[] = [
@@ -20,6 +32,7 @@ const NAV: NavItem[] = [
   { to: '/stock',   label: 'สต็อกสินค้า',   icon: <Boxes size={15} /> },
   { to: '/barcode', label: 'ป้ายพัสดุ',     icon: <Tag size={15} /> },
   { to: '/history', label: 'ประวัติสต็อก',  icon: <History size={15} /> },
+  { to: '/chat',    label: 'แชท',           icon: <MessageSquare size={15} />, badge: <ChatBadge /> },
 ]
 
 export function Sidebar() {
@@ -47,7 +60,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-1.5" aria-label="Main navigation">
-        {NAV.map(({ to, label, icon, end }) => (
+        {NAV.map(({ to, label, icon, end, badge }) => (
           <NavLink
             key={to}
             to={to}
@@ -66,10 +79,10 @@ export function Sidebar() {
                   {icon}
                 </span>
                 <span className="truncate">{label}</span>
-                {/* Active indicator bar */}
-                {isActive && (
+                {/* Unread badge (chat) or active indicator bar */}
+                {badge ?? (isActive && (
                   <span className="ml-auto w-1 h-3.5 rounded-full bg-blue-500 dark:bg-blue-400 flex-shrink-0" />
-                )}
+                ))}
               </>
             )}
           </NavLink>
