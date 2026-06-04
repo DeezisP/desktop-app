@@ -72,8 +72,14 @@ export function useChat() {
     setLoadingRooms(true)
     try {
       const rooms = await chatApi.getRooms()
+      console.log('[useChat] getRooms() response count:', Array.isArray(rooms) ? rooms.length : 0)
+      if (Array.isArray(rooms) && rooms.length > 0) {
+        console.log('[useChat] first room from API:', rooms[0])
+      }
       // chatApi already normalizes to [], double-guard here for safety
-      setRooms(Array.isArray(rooms) ? rooms : [])
+      const safeRooms = Array.isArray(rooms) ? rooms : []
+      setRooms(safeRooms)
+      console.log('[useChat] stored rooms in store, count:', safeRooms.length)
     } catch (err) {
       console.error('[useChat] failed to load rooms', err)
       setRooms([])
@@ -333,7 +339,10 @@ export function useChat() {
 
   useEffect(() => {
     if (isAuthenticated) {
+      console.log('[useChat] authenticated, loading rooms...')
       loadRooms()
+    } else {
+      console.log('[useChat] not authenticated, skipping room load')
     }
   }, [isAuthenticated, loadRooms])
 

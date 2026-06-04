@@ -91,7 +91,13 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const loading = useChatStore((s) => s.loadingRooms)
 
+  // Debug logging
+  if (typeof window !== 'undefined') {
+    console.log('[ChatRoomList] render, rooms count:', rooms.length, 'activeRoomId:', activeRoomId, 'loading:', loading)
+  }
+
   if (loading && rooms.length === 0) {
+    console.log('[ChatRoomList] showing loading state')
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 size={20} className="animate-spin text-zinc-400" />
@@ -100,6 +106,7 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   }
 
   if (rooms.length === 0) {
+    console.log('[ChatRoomList] showing empty state (no rooms)')
     return (
       <div className="flex flex-col items-center justify-center h-full gap-1 text-zinc-400 dark:text-zinc-500 px-4 text-center select-none">
         <Users size={28} className="mb-1 opacity-40" />
@@ -109,6 +116,7 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
     )
   }
 
+  console.log('[ChatRoomList] rendering', rooms.length, 'rooms')
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">

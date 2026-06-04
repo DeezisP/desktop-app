@@ -8,6 +8,7 @@ import { Login }          from './screens/Login'
 import { StockHistory }   from './screens/StockHistory'
 import Settings           from './screens/Settings'
 import Chat               from './screens/Chat'
+import { useAppLifecycle } from './hooks/useAppLifecycle'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
 import PackingPanel        from './panels/PackingPanel'
@@ -32,12 +33,16 @@ function Padded({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize)
-
+  
+  // Initialize session on app startup
   useEffect(() => {
     initialize().catch((err: unknown) => {
       console.error('[App] initialize() rejected:', err)
     })
   }, [initialize])
+
+  // Manage app lifecycle, STOMP reconnections, and session persistence
+  useAppLifecycle()
 
   return (
     <ErrorBoundary>
