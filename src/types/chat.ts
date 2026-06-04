@@ -24,6 +24,16 @@ export interface ChatMessage {
   isEdited: boolean
 }
 
+export interface ChatMember {
+  id: string | number
+  username: string
+  email: string
+  role: string
+  firstname: string
+  lastname: string
+  name: string
+}
+
 export interface ChatRoom {
   id: number
   name: string
@@ -32,6 +42,8 @@ export interface ChatRoom {
   unreadCount: number
   isGroup: boolean
   guestToken: string | null
+  createdAt?: string
+  members?: ChatMember[]
 }
 
 export interface PagedMessageResponse {

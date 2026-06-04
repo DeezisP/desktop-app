@@ -189,13 +189,33 @@ export const useChatStore = create<ChatState>((set) => ({
 }))
 
 // Selector helpers — safe against undefined store state
-export const selectSortedRooms = (s: ChatState) =>
-  [...(s.rooms ?? [])].sort((a, b) => {
+export const selectSortedRooms = (s: ChatState) => {
+  const raw = s.rooms ?? []
+  const sorted = [...raw].sort((a, b) => {
     if (!a.lastMessageAt && !b.lastMessageAt) return 0
     if (!a.lastMessageAt) return 1
     if (!b.lastMessageAt) return -1
     return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
   })
+  
+  // Audit logging
+  if (sorted.length > 0 && typeof window !== 'undefined') {
+    console.log('[selectSortedRooms] ═════════════════════════════════════════════')
+    console.log('[selectSortedRooms] raw rooms count:', raw.length)
+    console.log('[selectSortedRooms] sorted rooms count:', sorted.length)
+    const first = sorted[0]
+    console.log('[selectSortedRooms] first sorted room:', {
+      id: first.id,
+      name: first.name,
+      hasMembers: !!first.members,
+      memberCount: first.members?.length ?? 0,
+      lastMessageAt: first.lastMessageAt,
+    })
+    console.log('[selectSortedRooms] ═════════════════════════════════════════════')
+  }
+  
+  return sorted
+}
 
 export const selectTotalUnread = (s: ChatState) =>
   (s.rooms ?? []).reduce((sum, r) => sum + (r.unreadCount ?? 0), 0)

@@ -91,6 +91,34 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const loading = useChatStore((s) => s.loadingRooms)
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // AUDIT LOGGING: Log all rooms and filter logic
+  // ════════════════════════════════════════════════════════════════════════════
+  
+  console.log('[ChatRoomList] ═══════════════════════════════════════════════════')
+  console.log('[ChatRoomList] selector output - total rooms:', rooms.length)
+  console.log('[ChatRoomList] activeRoomId:', activeRoomId)
+  console.log('[ChatRoomList] loading:', loading)
+  
+  // Log each room
+  rooms.forEach((room, idx) => {
+    const msgPreview = room.lastMessage 
+      ? room.lastMessage.substring(0, 30) + '...'
+      : '(null)'
+    console.log(`[ChatRoomList] room[${idx}]:`, {
+      id: room.id,
+      name: room.name,
+      nameType: typeof room.name,
+      nameLength: room.name?.length ?? 0,
+      lastMessage: msgPreview,
+      lastMessageType: typeof room.lastMessage,
+      unreadCount: room.unreadCount,
+      isGroup: room.isGroup,
+      guestToken: room.guestToken ? '✓' : '(none)',
+      membersCount: room.members?.length ?? 'undefined',
+    })
+  })
+
   // Filter out rooms with no lastMessage (like web admin implementation)
   const filteredRooms = rooms.filter(r => 
     r.lastMessage !== null && 
@@ -98,9 +126,12 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
     String(r.lastMessage).trim() !== ''
   )
 
+  console.log('[ChatRoomList] after filter - valid rooms:', filteredRooms.length, 'filtered out:', rooms.length - filteredRooms.length)
+  console.log('[ChatRoomList] ═══════════════════════════════════════════════════')
+
   // Debug logging
-  if (typeof window !== 'undefined') {
-    console.log('[ChatRoomList] render, total rooms:', rooms.length, 'filtered:', filteredRooms.length, 'activeRoomId:', activeRoomId, 'loading:', loading)
+  if (typeof window !== 'undefined' && filteredRooms.length > 0) {
+    console.log('[ChatRoomList] first filtered room details:', JSON.stringify(filteredRooms[0], null, 2))
   }
 
   if (loading && filteredRooms.length === 0) {
@@ -113,7 +144,7 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   }
 
   if (filteredRooms.length === 0) {
-    console.log('[ChatRoomList] showing empty state (no rooms)')
+    console.log('[ChatRoomList] showing empty state (no valid rooms after filter)')
     return (
       <div className="flex flex-col items-center justify-center h-full gap-1 text-zinc-400 dark:text-zinc-500 px-4 text-center select-none">
         <Users size={28} className="mb-1 opacity-40" />

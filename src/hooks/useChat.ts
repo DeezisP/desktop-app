@@ -73,14 +73,24 @@ export function useChat() {
     setLoadingRooms(true)
     try {
       const rooms = await chatApi.getRooms()
-      console.log('[useChat] getRooms() response count:', Array.isArray(rooms) ? rooms.length : 0)
+      console.log('[useChat] ═══════════════════════════════════════════════════')
+      console.log('[useChat] getRooms() API response:')
+      console.log('[useChat] raw response count:', Array.isArray(rooms) ? rooms.length : 0)
       if (Array.isArray(rooms) && rooms.length > 0) {
-        console.log('[useChat] first room from API:', rooms[0])
+        console.log('[useChat] first room from API:', JSON.stringify(rooms[0], null, 2))
+        console.log('[useChat] first room keys:', Object.keys(rooms[0]))
+        console.log('[useChat] first room name:', rooms[0].name)
+        console.log('[useChat] first room id:', rooms[0].id)
+        console.log('[useChat] first room lastMessage:', rooms[0].lastMessage)
+        console.log('[useChat] first room members count:', rooms[0].members?.length ?? 'undefined')
+        if (rooms[0].members) {
+          console.log('[useChat] first room members:', JSON.stringify(rooms[0].members, null, 2))
+        }
       }
-      // chatApi already normalizes to [], double-guard here for safety
       const safeRooms = Array.isArray(rooms) ? rooms : []
+      console.log('[useChat] setting store with rooms count:', safeRooms.length)
       setRooms(safeRooms)
-      console.log('[useChat] stored rooms in store, count:', safeRooms.length)
+      console.log('[useChat] ═══════════════════════════════════════════════════')
     } catch (err) {
       console.error('[useChat] failed to load rooms', err)
       setRooms([])
