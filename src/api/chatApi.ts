@@ -29,6 +29,13 @@ export const chatApi = {
       .then((r) => (Array.isArray(r.data?.data) ? r.data.data : []))
   },
 
+  getReadState(roomId: number): Promise<{ partnerLastReadMessageId?: number | null }> {
+    return apiClient
+      .get<ApiResponse<{ partnerLastReadMessageId?: number | null }>>(`/chat/rooms/${roomId}/read-state`)
+      .then((r) => r.data?.data ?? {})
+      .catch(() => ({}))
+  },
+
   sendMessage(roomId: number, messageText: string, clientMessageId: string): Promise<ChatMessage> {
     return apiClient
       .post<ApiResponse<ChatMessage>>('/chat/messages/send', {

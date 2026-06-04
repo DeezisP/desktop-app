@@ -17,6 +17,8 @@ interface ChatState {
   outboundQueue: OutboundMessage[]
   loadingRooms: boolean
   loadingMessages: Record<number, boolean>
+  // roomId → partner's last read message ID
+  partnerLastReadId: Record<number, number | null>
 
   setRooms: (rooms: ChatRoom[] | null | undefined) => void
   setActiveRoom: (roomId: number | null) => void
@@ -34,6 +36,7 @@ interface ChatState {
   setLoadingRooms: (v: boolean) => void
   setLoadingMessages: (roomId: number, v: boolean) => void
   setCursor: (roomId: number, cursor: string | null, hasMore: boolean) => void
+  setPartnerLastReadId: (roomId: number, messageId: number | null) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -47,6 +50,7 @@ export const useChatStore = create<ChatState>((set) => ({
   outboundQueue: [],
   loadingRooms: false,
   loadingMessages: {},
+  partnerLastReadId: {},
 
   // Always coerce to array — guards against null/undefined from API
   setRooms(rooms) {
@@ -174,6 +178,12 @@ export const useChatStore = create<ChatState>((set) => ({
     set((s) => ({
       cursors: { ...(s.cursors ?? {}), [roomId]: cursor },
       hasMore: { ...(s.hasMore ?? {}), [roomId]: hasMore },
+    }))
+  },
+
+  setPartnerLastReadId(roomId, messageId) {
+    set((s) => ({
+      partnerLastReadId: { ...(s.partnerLastReadId ?? {}), [roomId]: messageId },
     }))
   },
 }))

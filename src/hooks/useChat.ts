@@ -57,6 +57,7 @@ export function useChat() {
     setLoadingMessages,
     addToQueue,
     removeFromQueue,
+    setPartnerLastReadId,
   } = useChatStore()
 
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -283,6 +284,19 @@ export function useChat() {
     return unsub
   }, [isAuthenticated, setPresence])
 
+  // ── Load partner read state ────────────────────────────────────────────────
+
+  const loadPartnerReadState = useCallback(async (roomId: number) => {
+    try {
+      const state = await chatApi.getReadState(roomId)
+      if (state.partnerLastReadMessageId) {
+        setPartnerLastReadId(roomId, Number(state.partnerLastReadMessageId))
+      }
+    } catch (err) {
+      console.error('[useChat] failed to load partner read state for room', roomId, err)
+    }
+  }, [setPartnerLastReadId])
+
   // ── Subscribe to room-specific topics when activeRoomId changes ─────────────
 
   useEffect(() => {
@@ -321,19 +335,36 @@ export function useChat() {
       },
     )
 
-    // Gap-fill on mount (reconnect may have missed messages)
+    // Read receipts - when partner marks messages as read
+    const unsubRead = warehouseStompClient.subscribe(
+      `/topic/room/${activeRoomId}/read`,
+      (msg) => {
+        try {
+          const payload = JSON.parse(msg.body)
+          if (payload.lastReadMessageId && user && payload.userId !== user.id) {
+            setPartnerLastReadId(activeRoomId, Number(payload.lastReadMessageId))
+          }
+        } catch {
+          // ignore
+        }
+      },
+    )
+
+    // Load partner read state and gap-fill on room select
+    loadPartnerReadState(activeRoomId)
     gapFill(activeRoomId)
 
     return () => {
       unsubMsg()
       unsubTyping()
+      unsubRead()
       // Stop any pending typing on room leave
       if (lastTypingRoomRef.current === activeRoomId) {
         sendTyping(activeRoomId, false)
         lastTypingRoomRef.current = null
       }
     }
-  }, [activeRoomId, appendMessage, setTyping, gapFill, sendTyping, user])
+  }, [activeRoomId, appendMessage, setTyping, gapFill, sendTyping, user, setPartnerLastReadId, loadPartnerReadState])
 
   // ── Initial room load ───────────────────────────────────────────────────────
 

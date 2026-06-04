@@ -91,12 +91,19 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const loading = useChatStore((s) => s.loadingRooms)
 
+  // Filter out rooms with no lastMessage (like web admin implementation)
+  const filteredRooms = rooms.filter(r => 
+    r.lastMessage !== null && 
+    r.lastMessage !== undefined && 
+    String(r.lastMessage).trim() !== ''
+  )
+
   // Debug logging
   if (typeof window !== 'undefined') {
-    console.log('[ChatRoomList] render, rooms count:', rooms.length, 'activeRoomId:', activeRoomId, 'loading:', loading)
+    console.log('[ChatRoomList] render, total rooms:', rooms.length, 'filtered:', filteredRooms.length, 'activeRoomId:', activeRoomId, 'loading:', loading)
   }
 
-  if (loading && rooms.length === 0) {
+  if (loading && filteredRooms.length === 0) {
     console.log('[ChatRoomList] showing loading state')
     return (
       <div className="flex items-center justify-center h-full">
@@ -105,7 +112,7 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
     )
   }
 
-  if (rooms.length === 0) {
+  if (filteredRooms.length === 0) {
     console.log('[ChatRoomList] showing empty state (no rooms)')
     return (
       <div className="flex flex-col items-center justify-center h-full gap-1 text-zinc-400 dark:text-zinc-500 px-4 text-center select-none">
@@ -116,11 +123,11 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
     )
   }
 
-  console.log('[ChatRoomList] rendering', rooms.length, 'rooms')
+  console.log('[ChatRoomList] rendering', filteredRooms.length, 'rooms')
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        {rooms.map((room: ChatRoom) => (
+        {filteredRooms.map((room: ChatRoom) => (
           <RoomItem
             key={room.id}
             room={room}

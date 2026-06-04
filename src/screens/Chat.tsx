@@ -5,6 +5,7 @@ import { useChat } from '../hooks/useChat'
 import { ChatRoomList } from '../components/chat/ChatRoomList'
 import { ChatMessageList } from '../components/chat/ChatMessageList'
 import { ChatInput } from '../components/chat/ChatInput'
+import { TypingIndicator } from '../components/chat/TypingIndicatorDisplay'
 import { selectTotalUnread } from '../store/chatStore'
 
 function EmptyRoomPlaceholder() {
@@ -23,6 +24,8 @@ export default function Chat() {
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const rooms = useChatStore((s) => s.rooms ?? [])
   const totalUnread = useChatStore(selectTotalUnread)
+  const typingSet = useChatStore((s) => s.typing[activeRoomId ?? -1] ?? new Set())
+  const typingNames = Array.from(typingSet)
   const { loadRooms, loadMessages, sendMessage, notifyTyping, markRoomRead } = useChat()
 
   const setActiveRoom = useChatStore((s) => s.setActiveRoom)
@@ -160,6 +163,11 @@ export default function Chat() {
 
             {/* Messages */}
             <ChatMessageList roomId={activeRoomId} onLoadMore={handleLoadMore} />
+
+            {/* Typing Indicator */}
+            {typingNames.length > 0 && (
+              <TypingIndicator names={typingNames} />
+            )}
 
             {/* Input */}
             <ChatInput onSend={handleSend} onTyping={handleTyping} />
