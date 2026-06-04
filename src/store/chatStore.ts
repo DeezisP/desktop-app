@@ -178,7 +178,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
 // Selector helpers
 export const selectSortedRooms = (s: ChatState) =>
-  [...s.rooms].sort((a, b) => {
+  [...(s.rooms ?? [])].sort((a, b) => {
     if (!a.lastMessageAt && !b.lastMessageAt) return 0
     if (!a.lastMessageAt) return 1
     if (!b.lastMessageAt) return -1
@@ -186,4 +186,4 @@ export const selectSortedRooms = (s: ChatState) =>
   })
 
 export const selectTotalUnread = (s: ChatState) =>
-  s.rooms.reduce((sum, r) => sum + r.unreadCount, 0)
+  (s.rooms ?? []).reduce((sum, r) => sum + (r.unreadCount ?? 0), 0)

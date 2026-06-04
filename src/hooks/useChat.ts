@@ -86,13 +86,12 @@ export function useChat() {
     async (roomId: number, beforeId?: number) => {
       setLoadingMessages(roomId, true)
       try {
-        const { messages, nextCursor, hasMore } = await chatApi.getMessages(
-          roomId,
-          beforeId,
-          50,
-        )
+        const result = await chatApi.getMessages(roomId, beforeId, 50)
+        const raw = Array.isArray(result?.messages) ? result.messages : []
+        const nextCursor = result?.nextCursor ?? null
+        const hasMore = result?.hasMore ?? false
         // API returns newest-first; reverse to oldest-first for display
-        const ordered = [...messages].reverse()
+        const ordered = [...raw].reverse()
         prependMessages(roomId, ordered, nextCursor, hasMore)
         if (ordered.length > 0) {
           const newest = ordered[ordered.length - 1]
@@ -159,7 +158,8 @@ export function useChat() {
       const sinceId = lastSeenMessageRef.current[roomId]
       if (!sinceId) return
       try {
-        const messages = await chatApi.getMessagesSince(roomId, sinceId)
+        const raw = await chatApi.getMessagesSince(roomId, sinceId)
+        const messages = Array.isArray(raw) ? raw : []
         messages.forEach((m) => appendMessage(m))
         if (messages.length > 0) {
           lastSeenMessageRef.current[roomId] = messages[messages.length - 1].id
