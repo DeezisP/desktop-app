@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { MessageSquare, RefreshCw } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useChat } from '../hooks/useChat'
@@ -27,6 +27,32 @@ export default function Chat() {
 
   const setActiveRoom = useChatStore((s) => s.setActiveRoom)
   const messages = useChatStore((s) => (activeRoomId ? (s.messages ?? {})[activeRoomId] : undefined))
+  
+  const [isMobile, setIsMobile] = useState(false)
+  const originalTitleRef = useRef<string>('')
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // Capture original title once
+  useEffect(() => {
+    originalTitleRef.current = document.title
+    return () => { document.title = originalTitleRef.current }
+  }, [])
+
+  // Update tab title when there are unread messages
+  useEffect(() => {
+    if (totalUnread > 0) {
+      document.title = `(${totalUnread}) ข้อความใหม่ — Admin Chat`
+    } else {
+      document.title = originalTitleRef.current || 'Admin Chat'
+    }
+  }, [totalUnread])
 
   const activeRoom = rooms.find((r) => r.id === activeRoomId)
 
@@ -78,7 +104,8 @@ export default function Chat() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Room list sidebar */}
-      <aside className="w-64 flex-shrink-0 flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+      {(!isMobile || !activeRoomId) && (
+      <aside className={`${isMobile ? 'w-full' : 'w-80'} flex-shrink-0 flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden`}>
         {/* Sidebar header */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-zinc-200 dark:border-zinc-800 flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -103,9 +130,11 @@ export default function Chat() {
 
         <ChatRoomList onSelectRoom={handleSelectRoom} />
       </aside>
+      )}
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
+      {(!isMobile || activeRoomId) && (
+      <div className={`flex-1 h-full flex flex-col min-w-0 ${isMobile ? 'absolute inset-0 z-50' : 'relative'} bg-zinc-50 dark:bg-zinc-950`}>
         {activeRoomId && activeRoom ? (
           <>
             {/* Room header */}
@@ -127,6 +156,7 @@ export default function Chat() {
           <EmptyRoomPlaceholder />
         )}
       </div>
+      )}
     </div>
   )
 }
