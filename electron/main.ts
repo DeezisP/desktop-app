@@ -370,7 +370,8 @@ function createWindow() {
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 
-const ALLOWED_KEYS = new Set(['access_token', 'device_token'])
+const ALLOWED_KEYS      = new Set(['access_token', 'refresh_token', 'device_token'])
+const AUTH_ONLY_KEYS    = new Set(['access_token', 'refresh_token'])
 
 ipcMain.handle('token:save', (_ev, key: string, value: string): boolean => {
   if (!ALLOWED_KEYS.has(key)) return false
@@ -405,8 +406,10 @@ ipcMain.handle('token:delete', (_ev, key: string): boolean => {
   return true
 })
 
+// Clears auth tokens only — deliberately preserves device_token so the
+// device stays trusted after logout and OTP is not asked on the next login.
 ipcMain.handle('token:clear', (): boolean => {
-  tokenStore.clear()
+  AUTH_ONLY_KEYS.forEach(k => tokenStore.delete(k))
   persistTokens()
   return true
 })

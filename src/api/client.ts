@@ -15,6 +15,7 @@ export const apiClient = axios.create({
 let _getToken: (() => string | null) | null = null
 let _setToken: ((t: string) => void) | null = null
 let _doLogout: (() => Promise<void>) | null = null
+let _refreshToken: string | null = null
 
 export function registerAuthAccessors(
   getToken: () => string | null,
@@ -24,6 +25,11 @@ export function registerAuthAccessors(
   _getToken  = getToken
   _setToken  = setToken
   _doLogout  = doLogout
+}
+
+/** Called by authStore whenever a refresh token is obtained or cleared. */
+export function setStoredRefreshToken(token: string | null) {
+  _refreshToken = token
 }
 
 // ── Refresh state ─────────────────────────────────────────────────────────────
@@ -68,13 +74,19 @@ apiClient.interceptors.response.use(
     isRefreshing = true
 
     try {
-      const { data } = await axios.post<RefreshResponse>(
+      // Send the stored refresh token in the request body as a fallback for Electron
+      // where SameSite cookies may not be forwarded from the renderer context.
+      // The server still checks the HttpOnly cookie first; body is only used when
+      // the cookie is absent.
+      const body = _refreshToken ? { refreshToken: _refreshToken } : {}
+      const { data } = await axios.post<RefreshResponse & { refreshToken?: string }>(
         `${BASE_URL}/auth/refresh`,
-        {},
+        body,
         { withCredentials: true },
       )
       const newToken = data.token
       _setToken?.(newToken)
+      if (data.refreshToken) _refreshToken = data.refreshToken
       drainQueue(null, newToken)
       original.headers.Authorization = `Bearer ${newToken}`
       return apiClient(original)

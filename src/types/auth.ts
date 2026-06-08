@@ -31,6 +31,7 @@ export interface AuthUser {
 
 export interface LoginResponse extends AuthUser {
   accessToken: string
+  refreshToken?: string
 }
 
 /** Returned when the device is not yet trusted — OTP sent to email */

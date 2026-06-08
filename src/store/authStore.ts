@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import axios from 'axios'
 import { authApi } from '../api/auth'
-import { registerAuthAccessors } from '../api/client'
+import { registerAuthAccessors, setStoredRefreshToken } from '../api/client'
 import type { AuthUser } from '../types/auth'
 
 function eAPI() {
@@ -76,12 +76,16 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         const api = eAPI()
         let token: string | null = null
+        let storedRefresh: string | null = null
         if (api) {
           token = await api.getToken('access_token')
+          storedRefresh = await api.getToken('refresh_token')
         } else {
-          // Browser dev mode — persist session across reloads via sessionStorage
           token = sessionStorage.getItem('access_token')
+          storedRefresh = sessionStorage.getItem('refresh_token')
         }
+        // Seed the refresh-token store so the interceptor can use it immediately
+        if (storedRefresh) setStoredRefreshToken(storedRefresh)
         if (!token) {
           set({ isLoading: false })
           return
@@ -125,9 +129,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         // Trusted device — full login response (narrowed past the guard above)
         const loginResp = result as import('../types/auth').LoginResponse
-        const { accessToken, ...user } = loginResp
-        if (eAPI()) { await eAPI()!.saveToken('access_token', accessToken) }
-        else { sessionStorage.setItem('access_token', accessToken) }
+        const { accessToken, refreshToken: rt, ...user } = loginResp
+        if (eAPI()) {
+          await eAPI()!.saveToken('access_token', accessToken)
+          if (rt) await eAPI()!.saveToken('refresh_token', rt)
+        } else {
+          sessionStorage.setItem('access_token', accessToken)
+          if (rt) sessionStorage.setItem('refresh_token', rt)
+        }
+        if (rt) setStoredRefreshToken(rt)
         set({ token: accessToken, user: user as AuthUser, isAuthenticated: true })
       } finally {
         set({ isLoading: false })
@@ -175,9 +185,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
           otp.trim(),
           pendingOtp.deviceToken,
         )
-        const { accessToken, ...user } = result
-        if (eAPI()) { await eAPI()!.saveToken('access_token', accessToken) }
-        else { sessionStorage.setItem('access_token', accessToken) }
+        const { accessToken, refreshToken: rt, ...user } = result
+        if (eAPI()) {
+          await eAPI()!.saveToken('access_token', accessToken)
+          if (rt) await eAPI()!.saveToken('refresh_token', rt)
+        } else {
+          sessionStorage.setItem('access_token', accessToken)
+          if (rt) sessionStorage.setItem('refresh_token', rt)
+        }
+        if (rt) setStoredRefreshToken(rt)
         set({
           token:           accessToken,
           user:            user as AuthUser,
@@ -207,8 +223,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch {
         // Always clear local state even if server call fails
       } finally {
+        // clearTokens() now only removes access_token + refresh_token.
+        // device_token is intentionally preserved so the device stays trusted
+        // and OTP is not requested on the next login.
         eAPI()?.clearTokens()
         sessionStorage.removeItem('access_token')
+        sessionStorage.removeItem('refresh_token')
+        setStoredRefreshToken(null)
         set({ user: null, token: null, isAuthenticated: false, pendingOtp: null })
       }
     },
