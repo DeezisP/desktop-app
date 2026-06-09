@@ -73,6 +73,33 @@ export const useAuthStore = create<AuthState>((set, get) => {
     async initialize() {
       console.log('[authStore] initialize()')
       set({ isLoading: true })
+
+      // Listen for deep-link auth results pushed from the main process.
+      // This fires when the OS cold-starts the app via desktopwarehouse:// and
+      // there is no active loginWithGoogle() IPC call to resolve.
+      eAPI()?.onDeepLinkResult?.(async (result) => {
+        if (get().isAuthenticated) return // already logged in, ignore
+        if (!result.success) return
+        const api = eAPI()
+        const { accessToken, refreshToken: rt } = result
+        if (api) {
+          await api.saveToken('access_token', accessToken)
+          if (rt) await api.saveToken('refresh_token', rt)
+        } else {
+          sessionStorage.setItem('access_token', accessToken)
+          if (rt) sessionStorage.setItem('refresh_token', rt)
+        }
+        if (rt) setStoredRefreshToken(rt)
+        set({ token: accessToken })
+        try {
+          const user = await authApi.getMe()
+          set({ user, isAuthenticated: true })
+          console.log('[authStore] deep-link login for', user.username)
+        } catch (err) {
+          console.error('[authStore] deep-link getMe failed', err)
+        }
+      })
+
       try {
         const api = eAPI()
         let token: string | null = null

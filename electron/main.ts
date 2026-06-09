@@ -297,6 +297,14 @@ function createWindow() {
     mainWindow?.show()
     mainWindow?.focus()
 
+    // Process any deep-link URL that arrived before the window was ready
+    if (pendingDeepLinkUrl) {
+      const url = pendingDeepLinkUrl
+      pendingDeepLinkUrl = null
+      // Delay so the renderer has time to initialize before we push auth state
+      setTimeout(() => handleDeepLink(url), 1500)
+    }
+
     // Auto-update check — packaged builds only; dev mode has no installer channel
     if (app.isPackaged) {
       setTimeout(() => {
@@ -463,19 +471,108 @@ const GOOGLE_REDIRECT  = 'https://www.perfectelt.com/perfect/v1/auth/google-succ
 const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth'
 const REDEEM_URL       = 'https://perfectelt.com/perfect/v1/auth/google-desktop-redeem'
 
-let googlePollInterval: ReturnType<typeof setInterval> | null = null
-let googlePollTimeout:  ReturnType<typeof setTimeout>  | null = null
+let googlePollInterval:   ReturnType<typeof setInterval> | null = null
+let googlePollTimeout:    ReturnType<typeof setTimeout>  | null = null
+let pendingGoogleResolve: ((r: GoogleLoginResult) => void) | null = null
+let pendingDeepLinkUrl:   string | null = null
 
 function stopGooglePoll() {
   if (googlePollInterval) { clearInterval(googlePollInterval); googlePollInterval = null }
   if (googlePollTimeout)  { clearTimeout(googlePollTimeout);   googlePollTimeout  = null }
 }
 
-ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
+// ── Session redemption helper (used by both poll and deep-link handler) ────────
+
+type RedeemResult =
+  | { status: 'success'; accessToken: string; refreshToken?: string }
+  | { status: 'pending' }
+  | { status: 'error';   error: string }
+
+async function redeemGoogleSession(nonce: string): Promise<RedeemResult> {
+  try {
+    const buf = tokenStore.get('device_token')
+    const deviceToken = buf
+      ? (safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8'))
+      : undefined
+
+    const resp = await net.fetch(REDEEM_URL, {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
+      credentials: 'include',
+      body:        JSON.stringify({ nonce, ...(deviceToken ? { deviceToken } : {}) }),
+    })
+
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({})) as { error?: string }
+      return { status: 'error', error: data.error ?? 'redeem_failed' }
+    }
+
+    const data = await resp.json() as { pending?: boolean; token?: string; refreshToken?: string }
+    if (data.pending) return { status: 'pending' }
+    if (!data.token)  return { status: 'error', error: 'no_token' }
+
+    return { status: 'success', accessToken: data.token, refreshToken: data.refreshToken }
+  } catch (err) {
+    return { status: 'error', error: `network_error: ${err}` }
+  }
+}
+
+// ── Deep-link handler ─────────────────────────────────────────────────────────
+// Called whenever the OS delivers a desktopwarehouse:// URL to this process —
+// either via open-url (macOS), second-instance argv (Win/Linux), or a startup arg.
+
+function handleDeepLink(url: string): void {
+  log('[deep-link] received: ' + url)
+  if (!url.startsWith('desktopwarehouse://auth/')) return
+
+  let session: string | null = null
+  try {
+    session = new URL(url).searchParams.get('session')
+  } catch {
+    log('[deep-link] failed to parse URL')
+    return
+  }
+  if (!session) { log('[deep-link] missing session param'); return }
+
+  // Bring window to foreground
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+
+  // Capture and clear the pending resolve atomically before any async work
+  const resolve = pendingGoogleResolve
+  pendingGoogleResolve = null
   stopGooglePoll()
 
+  redeemGoogleSession(session).then(r => {
+    const result: GoogleLoginResult = r.status === 'success'
+      ? { success: true, accessToken: r.accessToken, refreshToken: r.refreshToken }
+      : { success: false, error: r.status === 'pending' ? 'not_ready' : r.error }
+
+    log('[deep-link] redeem status=' + r.status)
+
+    if (resolve) {
+      // Active login flow: resolve the pending auth:google IPC promise
+      resolve(result)
+    } else {
+      // Cold-start or no active flow: push result directly to the renderer
+      mainWindow?.webContents.send('auth:deep-link-result', result)
+    }
+  }).catch(err => {
+    log('[deep-link] unexpected error: ' + err)
+    if (resolve) resolve({ success: false, error: String(err) })
+  })
+}
+
+ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
+  stopGooglePoll()
+  pendingGoogleResolve = null
+
   return new Promise((resolve) => {
-    // Unique nonce so only this login attempt can match the backend entry
+    pendingGoogleResolve = resolve
+
     const nonce = `ELECTRON_${crypto.randomUUID()}`
 
     const params = new URLSearchParams({
@@ -490,63 +587,37 @@ ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
 
     shell.openExternal(`${GOOGLE_AUTH_URL}?${params}`)
       .catch((err) => {
-        resolve({ success: false, error: `open_failed: ${err.message}` })
-        return
+        stopGooglePoll()
+        const r = pendingGoogleResolve; pendingGoogleResolve = null
+        r?.({ success: false, error: `open_failed: ${err.message}` })
       })
 
-    // Poll every 2 s — backend returns { pending:true } until OAuth completes
+    // Poll every 2 s as fallback — deep-link will short-circuit this when it arrives
     googlePollInterval = setInterval(async () => {
-      try {
-        // Include the stored device token so the backend can record the IP / trust the device
-        const deviceTokenBuf = tokenStore.get('device_token')
-        const deviceToken = deviceTokenBuf
-          ? (safeStorage.isEncryptionAvailable()
-              ? safeStorage.decryptString(deviceTokenBuf)
-              : deviceTokenBuf.toString('utf8'))
-          : undefined
+      if (!pendingGoogleResolve) { stopGooglePoll(); return }
 
-        const resp = await net.fetch(REDEEM_URL, {
-          method:      'POST',
-          headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
-          credentials: 'include',
-          body:        JSON.stringify({ nonce, ...(deviceToken ? { deviceToken } : {}) }),
-        })
+      const r = await redeemGoogleSession(nonce)
+      if (!pendingGoogleResolve) { stopGooglePoll(); return } // deep-link won the race
 
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({})) as { error?: string }
-          if (data.error === 'expired') {
-            stopGooglePoll()
-            resolve({ success: false, error: 'expired' })
-          }
-          // Other errors: keep polling (transient network issues)
-          return
-        }
-
-        const data = await resp.json() as { pending?: boolean; token?: string; refreshToken?: string }
-        if (data.pending) return   // OAuth not complete yet — keep polling
-
+      if (r.status === 'success') {
         stopGooglePoll()
-        if (!data.token) {
-          resolve({ success: false, error: 'no_access_token' })
-          return
-        }
-        log('[google-auth] poll complete — access token obtained')
-        // Bring the app window to the foreground so the user sees login success
-        if (mainWindow) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.show()
-          mainWindow.focus()
-        }
-        resolve({ success: true, accessToken: data.token, refreshToken: data.refreshToken })
-      } catch {
-        // Network error during poll — keep trying
+        if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus() }
+        log('[google-auth] poll redeemed token')
+        const cb = pendingGoogleResolve; pendingGoogleResolve = null
+        cb({ success: true, accessToken: r.accessToken, refreshToken: r.refreshToken })
+      } else if (r.status === 'error' && !r.error.startsWith('network_error')) {
+        // Terminal error (expired, redeem_failed, no_token) — stop polling
+        stopGooglePoll()
+        const cb = pendingGoogleResolve; pendingGoogleResolve = null
+        cb({ success: false, error: r.error })
       }
+      // status === 'pending' or network_error: keep polling
     }, 2000)
 
-    // 5-minute overall timeout
     googlePollTimeout = setTimeout(() => {
       stopGooglePoll()
-      resolve({ success: false, error: 'timeout' })
+      const cb = pendingGoogleResolve; pendingGoogleResolve = null
+      cb?.({ success: false, error: 'timeout' })
     }, 5 * 60 * 1000)
   })
 })
@@ -578,18 +649,56 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('Perfect Electronic')
 }
 
-// Single-instance lock: if a second instance starts, focus the existing window.
+// ── Protocol registration ─────────────────────────────────────────────────────
+// On macOS the OS delivers open-url before app is ready; register early.
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  if (mainWindow) {
+    handleDeepLink(url)
+  } else {
+    pendingDeepLinkUrl = url
+    log('[deep-link] stored pending URL (window not yet ready)')
+  }
+})
+
+// Single-instance lock: if a second instance starts, bring window to front
+// or handle an incoming desktopwarehouse:// URL (Windows / Linux).
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
 
-app.on('second-instance', () => {
-  if (mainWindow) {
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find((a) => a.startsWith('desktopwarehouse://'))
+  if (url) {
+    handleDeepLink(url)
+  } else if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
   }
 })
 
+// Windows / Linux: if the app was launched directly via the protocol (cold start),
+// the URL appears as a command-line argument.
+if (process.platform !== 'darwin') {
+  const startUrl = process.argv.find((a) => a.startsWith('desktopwarehouse://'))
+  if (startUrl) {
+    pendingDeepLinkUrl = startUrl
+    log('[deep-link] startup URL captured: ' + startUrl)
+  }
+}
+
 app.whenReady().then(() => {
+  // Register the custom protocol so the OS routes desktopwarehouse:// here.
+  // electron-builder also writes the registry key (Win) / .desktop entry (Linux)
+  // for packaged builds via the protocols section in electron-builder.yml.
+  if (process.platform === 'linux' && !app.isPackaged) {
+    app.setAsDefaultProtocolClient('desktopwarehouse', process.execPath, [
+      path.resolve(process.argv[1]),
+    ])
+  } else {
+    app.setAsDefaultProtocolClient('desktopwarehouse')
+  }
+  log('[protocol] registered desktopwarehouse://')
+
   initLogFile()
   initTokenFile()
   loadPersistedTokens()

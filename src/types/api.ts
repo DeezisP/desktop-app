@@ -50,6 +50,7 @@ export interface ElectronAPI {
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   googleLogin: () => Promise<GoogleLoginResult>
+  onDeepLinkResult: (cb: (result: GoogleLoginResult) => void) => () => void
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   checkForUpdates: () => Promise<void>

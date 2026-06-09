@@ -18,6 +18,8 @@ export type ElectronAPI = {
   // ── Google OAuth ───────────────────────────────────────────────────────────
   /** Open Google OAuth popup and return access token on success */
   googleLogin: () => Promise<GoogleLoginResult>
+  /** Subscribe to deep-link auth results pushed from the main process (cold-start). */
+  onDeepLinkResult: (cb: (result: GoogleLoginResult) => void) => () => void
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   /** Trigger a manual update check (noop in dev mode) */
@@ -46,6 +48,12 @@ const api: ElectronAPI = {
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   googleLogin: () => ipcRenderer.invoke('auth:google'),
+
+  onDeepLinkResult: (cb) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: GoogleLoginResult) => cb(result)
+    ipcRenderer.on('auth:deep-link-result', listener)
+    return () => ipcRenderer.removeListener('auth:deep-link-result', listener)
+  },
 
   // ── Auto-update ────────────────────────────────────────────────────────────
   checkForUpdates: () => ipcRenderer.invoke('update:check'),

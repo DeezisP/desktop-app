@@ -23,7 +23,7 @@ extraResources:
 protocols:
   - name: Perfect Electronic
     schemes:
-      - perfectelt
+      - desktopwarehouse
 
 win:
   icon: resources/icon.ico
