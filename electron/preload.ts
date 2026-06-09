@@ -16,6 +16,8 @@ export type ElectronAPI = {
   showNotification: (title: string, body?: string) => Promise<void>
   /** Print an HTML string via the native OS print dialog (avoids Chromium print-preview issues) */
   printHtml: (html: string) => Promise<{ ok: boolean; error?: string }>
+  /** Fetch a chat image via main-process net.fetch (preserves auth across www redirects) */
+  fetchChatImage: (fileUrl: string) => Promise<{ base64: string; contentType: string } | null>
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   /** Open Google OAuth popup and return access token on success */
@@ -48,6 +50,7 @@ const api: ElectronAPI = {
   logPath:     ()           => ipcRenderer.invoke('log:path'),
   showNotification: (title, body) => ipcRenderer.invoke('notify:show', title, body),
   printHtml: (html) => ipcRenderer.invoke('print:html', html),
+  fetchChatImage: (fileUrl) => ipcRenderer.invoke('chat:fetch-image', fileUrl),
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   googleLogin: () => ipcRenderer.invoke('auth:google'),

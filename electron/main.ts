@@ -449,6 +449,44 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   } catch (e) { log(`[main] notify:show error: ${e}`) }
 })
 
+// ── Chat image proxy ──────────────────────────────────────────────────────────
+// Axios strips the Authorization header when following a cross-origin redirect
+// (perfectelt.com → www.perfectelt.com) per the Fetch spec.  net.fetch runs in
+// the main process and preserves custom headers across all redirects.
+
+ipcMain.handle(
+  'chat:fetch-image',
+  async (_ev, fileUrl: string): Promise<{ base64: string; contentType: string } | null> => {
+    const buf = tokenStore.get('access_token')
+    const token = buf
+      ? (safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8'))
+      : null
+
+    const API_BASE = 'https://perfectelt.com/perfect/v1'
+    const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_BASE}${fileUrl}`
+
+    try {
+      const resp = await net.fetch(fullUrl, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Origin: PRODUCTION_ORIGIN,
+        },
+        credentials: 'include',
+      })
+      if (!resp.ok) {
+        log(`[chat:fetch-image] ${resp.status} for ${fullUrl}`)
+        return null
+      }
+      const contentType = resp.headers.get('content-type') ?? 'image/jpeg'
+      const buf2 = await resp.arrayBuffer()
+      return { base64: Buffer.from(buf2).toString('base64'), contentType }
+    } catch (e) {
+      log(`[chat:fetch-image] error: ${e}`)
+      return null
+    }
+  },
+)
+
 // ── Label / document printing ─────────────────────────────────────────────────
 // Writes HTML to a temp file, loads it in a hidden BrowserWindow, then invokes
 // the native OS print dialog via webContents.print(). Avoids the Chromium
