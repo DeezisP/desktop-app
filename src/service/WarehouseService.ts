@@ -23,7 +23,7 @@ export interface HeldBarcode {
 }
 export type BackendQueueStatus   = 'WAITING' | 'PACKING' | 'DONE' | 'ERROR';
 export type BackendImportStatus  = 'IMPORTED' | 'PACKED' | 'CANCELLED';
-export type BackendMatchConfidence = 'EXACT' | 'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNMATCHED';
+export type BackendMatchConfidence = 'EXACT' | 'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNMATCHED' | 'CONTAINS' | 'TOKEN';
 
 export interface BackendOrderItem {
   id: number;

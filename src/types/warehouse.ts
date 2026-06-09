@@ -1,6 +1,6 @@
 export type ImportStatus = 'IMPORTED' | 'PACKED' | 'CANCELLED'
 export type QueueStatus  = 'WAITING' | 'PACKING' | 'DONE' | 'ERROR'
-export type MatchConfidence = 'EXACT' | 'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNMATCHED'
+export type MatchConfidence = 'EXACT' | 'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNMATCHED' | 'CONTAINS' | 'TOKEN'
 
 export interface WarehouseOrderItemResponse {
   id: number

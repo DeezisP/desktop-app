@@ -21,6 +21,9 @@ const COLORS: Record<string, string> = {
   MEDIUM:    'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30',
   LOW:       'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30',
   UNMATCHED: 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30',
+  // Legacy — shown until re-matched
+  CONTAINS:  'bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/30',
+  TOKEN:     'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30',
 }
 
 interface Props {

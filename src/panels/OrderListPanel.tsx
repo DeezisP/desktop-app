@@ -60,6 +60,9 @@ const MATCH_META: Record<BackendMatchConfidence, { dot: string; label: string; t
   MEDIUM:    { dot: 'bg-amber-500',   label: 'พอใช้',        text: 'text-amber-600 dark:text-amber-400' },
   LOW:       { dot: 'bg-orange-400',  label: 'ต่ำ',          text: 'text-orange-500 dark:text-orange-400' },
   UNMATCHED: { dot: 'bg-red-400',     label: 'ไม่พบ',        text: 'text-red-500 dark:text-red-400' },
+  // Legacy — shown for old rows until re-matched
+  CONTAINS:  { dot: 'bg-teal-500',    label: 'ใกล้เคียง',    text: 'text-teal-600 dark:text-teal-400' },
+  TOKEN:     { dot: 'bg-orange-400',  label: 'Token',         text: 'text-orange-500 dark:text-orange-400' },
 };
 
 const PLATFORM_META: Record<string, { bg: string; text: string; border: string; dot: string }> = {
