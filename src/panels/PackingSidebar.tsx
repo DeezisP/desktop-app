@@ -124,9 +124,10 @@ export default function PackingSidebar({
       const e = err as { response?: { data?: { message?: string; code?: string } } };
       const code = e.response?.data?.code;
       const msg  = e.response?.data?.message ?? 'เกิดข้อผิดพลาด';
-      setScanError({ msg, type: code === 'ALREADY_PACKED' ? 'packed' : 'error' });
+      const isSuccessLike = code === 'ALREADY_PACKED' || code === 'CONFLICT';
+      setScanError({ msg, type: isSuccessLike ? 'packed' : 'error' });
 
-      if (code === 'ALREADY_PACKED') {
+      if (isSuccessLike) {
         sounds.scanDuplicate();
         flashCard('success');
       } else {
