@@ -19,7 +19,7 @@ export interface PageResponse<T> {
 // ── Google OAuth result returned from main process ───────────────────────────
 
 export type GoogleLoginResult =
-  | { success: true;  accessToken: string }
+  | { success: true;  accessToken: string; refreshToken?: string }
   | { success: false; error: string }
 
 // ── Auto-update status pushed from main process ───────────────────────────────
