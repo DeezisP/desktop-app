@@ -34,18 +34,6 @@ export default function Chat() {
   const [isMobile, setIsMobile] = useState(false)
   const originalTitleRef = useRef<string>('')
 
-  // ── Debug logging for chat data flow ────────────────────────────────────────
-  useEffect(() => {
-    if (rooms.length > 0) {
-      console.log('[Chat] rooms loaded, count:', rooms.length)
-      console.log('[Chat] first room:', rooms[0])
-    }
-  }, [rooms.length])
-
-  useEffect(() => {
-    console.log('[Chat] component rendered, activeRoomId:', activeRoomId, 'rooms:', rooms.length)
-  }, [activeRoomId, rooms.length])
-
   // Detect mobile viewport
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth <= 768)
