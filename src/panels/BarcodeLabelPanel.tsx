@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Search, Printer, Plus, Minus, X, Package, Loader2,
@@ -14,6 +13,13 @@ import html2canvas from 'html2canvas';
 const SENDER_NAME = 'Perfect Electronic';
 const SENDER_PHONE = '088-683-7697';
 
+// Physical label width on paper — all sizing derives from this constant.
+const PRINT_WIDTH_MM = 100;
+
+// html2canvas render scale — higher = sharper barcode bars on print.
+// canvas.width will always be label_css_px * CAPTURE_SCALE.
+const CAPTURE_SCALE = 3;
+
 interface LabelItem { product: WarehouseProduct; qty: number; }
 
 interface SavedLabel {
@@ -27,28 +33,32 @@ interface SavedLabel {
   recipientAddress: string;
 }
 
+// Captured label data — produced once, consumed by both Print and PDF paths.
+interface CapturedLabel {
+  imgData: string;   // base64 PNG data URL
+  widthMm: number;   // physical width in mm (always PRINT_WIDTH_MM)
+  heightMm: number;  // physical height in mm derived from pixel ratio
+}
+
+type ElectronWindow = Window & {
+  electronAPI?: {
+    printHtml?: (html: string) => Promise<{ ok: boolean; error?: string }>
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function p2(n: number) { return String(n).padStart(2, '0'); }
 
-/** Split product title into main name and variation */
 function splitProductAndVariant(title: string): { name: string; variant: string } {
   if (!title) return { name: '', variant: '' };
-
   const idx = title.lastIndexOf(' - ');
-  if (idx !== -1) {
-    return { name: title.slice(0, idx).trim(), variant: title.slice(idx + 3).trim() };
-  }
-
+  if (idx !== -1) return { name: title.slice(0, idx).trim(), variant: title.slice(idx + 3).trim() };
   const bracketMatch = title.match(/^(.*?)\s*\((.+?)\)$/);
-  if (bracketMatch) {
-    return { name: bracketMatch[1].trim(), variant: bracketMatch[2].trim() };
-  }
-
+  if (bracketMatch) return { name: bracketMatch[1].trim(), variant: bracketMatch[2].trim() };
   return { name: title, variant: '' };
 }
 
-/** Group products by base name */
 function groupProducts(products: WarehouseProduct[]) {
   const map = new Map<string, WarehouseProduct[]>();
   for (const p of products) {
@@ -94,37 +104,71 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
   };
 }
 
-async function captureAndPrint(element: HTMLElement, mode: 'label' | 'bill' = 'label') {
-  const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
+// ── Core capture function ─────────────────────────────────────────────────────
+//
+// Captures a DOM element as a high-resolution PNG and returns the data
+// together with the exact physical dimensions the image should occupy on paper.
+//
+// Sizing derivation:
+//   canvas.width  = element_css_px * CAPTURE_SCALE   (e.g. 375 * 3 = 1125)
+//   pxPerMm       = canvas.width / PRINT_WIDTH_MM    (1125 / 100 = 11.25)
+//   heightMm      = canvas.height / pxPerMm
+//
+// This ratio is used identically for both PDF and print so the two outputs
+// are guaranteed to have the same physical dimensions.
+
+async function captureLabel(element: HTMLElement): Promise<CapturedLabel> {
+  const canvas = await html2canvas(element, {
+    scale: CAPTURE_SCALE,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+  });
+
+  const pxPerMm = canvas.width / PRINT_WIDTH_MM;
+  const heightMm = canvas.height / pxPerMm;
   const imgData = canvas.toDataURL('image/png');
-  // Use width:100mm + height:auto so the browser scales proportionally —
-  // setting an explicit height risks non-uniform scaling that distorts barcodes.
-  const widthMm = 100;
-  const title = mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ';
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${title}</title>
+
+  return { imgData, widthMm: PRINT_WIDTH_MM, heightMm };
+}
+
+// ── Print HTML builder ────────────────────────────────────────────────────────
+//
+// Creates a minimal HTML page that Electron's webContents.print() can render.
+// @page uses the exact physical mm dimensions from the captured label so the
+// OS print system knows the page size, preventing any auto-scaling.
+
+function buildPrintHtml(captured: CapturedLabel): string {
+  const { imgData, widthMm, heightMm } = captured;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>ป้ายพัสดุ</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:#fff; width:${widthMm}mm; }
-img { width:${widthMm}mm; height:auto; display:block; }
-@media print { @page { size:${widthMm}mm auto; margin:0; } }
-</style></head><body>
-<img src="${imgData}" />
-</body></html>`;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: #fff; width: ${widthMm}mm; height: ${heightMm}mm; }
+img { width: ${widthMm}mm; height: ${heightMm}mm; display: block; }
+@media print {
+  @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
+  html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style></head><body><img src="${imgData}" /></body></html>`;
+}
 
-  // In Electron use IPC → webContents.print() which opens the native OS print
-  // dialog without triggering Chromium's unsupported print-preview page.
-  const api = (window as Window & { electronAPI?: { printHtml?: (h: string) => Promise<{ ok: boolean; error?: string }> } }).electronAPI;
-  if (api?.printHtml) {
-    await api.printHtml(html);
-    return;
-  }
+// ── PDF builder ───────────────────────────────────────────────────────────────
+//
+// Creates a PDF whose page size exactly matches the captured physical dimensions.
+// addImage receives the same widthMm/heightMm so no scaling occurs inside jsPDF.
+// The image fills the page 1:1 at the correct physical size.
 
-  // Browser fallback
-  const win = window.open('', '_blank', `width=${Math.round(canvas.width / 3)},height=${Math.round(canvas.height / 3)}`);
-  if (!win) return;
-  win.document.write(html.replace('<img src=', '<img onload="window.print();window.close();" src='));
-  win.document.close();
+function buildPdfBlob(captured: CapturedLabel): Blob {
+  const { imgData, widthMm, heightMm } = captured;
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [widthMm, heightMm],
+    compress: false, // disable recompression — avoids jsPDF DPI re-interpretation
+  });
+  pdf.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
+  return pdf.output('blob');
 }
 
 // ── Code 128B barcode ─────────────────────────────────────────────────────────
@@ -146,6 +190,152 @@ function Code128SVG({ value, width = 348, height = 60 }: { value: string; width?
       <rect x={0} y={0} width={width} height={height} fill="#fff" />
       {rects.map((r, i) => <rect key={i} x={r.x} y={0} width={Math.max(0.5, r.w - 0.1)} height={height} fill="#000" />)}
     </svg>
+  );
+}
+
+// ── Label Preview Modal ───────────────────────────────────────────────────────
+//
+// Shows the captured PNG so the user can verify the label before committing
+// to print or PDF download. Both actions use the same imgData so output is
+// guaranteed identical.
+
+interface PreviewModalProps {
+  captured: CapturedLabel;
+  filename: string;
+  onClose: () => void;
+}
+
+function LabelPreviewModal({ captured, filename, onClose }: PreviewModalProps) {
+  const [printing, setPrinting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const handlePrint = async () => {
+    setPrinting(true);
+    setPrintError(null);
+    try {
+      const html = buildPrintHtml(captured);
+      const api = (window as ElectronWindow).electronAPI;
+
+      if (api?.printHtml) {
+        // Electron path — uses webContents.print() via IPC (native OS dialog)
+        const result = await api.printHtml(html);
+        if (!result.ok) setPrintError(result.error ?? 'Print failed');
+      } else {
+        // Browser fallback — open popup and wait for image load before printing
+        const win = window.open('', '_blank', `width=420,height=600`);
+        if (win) {
+          // onload fires after the base64 image is decoded and rendered
+          const printHtml = html.replace(
+            '<img src=',
+            '<img onload="window.focus();setTimeout(function(){window.print();},100);" src='
+          );
+          win.document.write(printHtml);
+          win.document.close();
+          win.focus();
+        }
+      }
+    } catch (e) {
+      setPrintError(String(e));
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const handleSavePdf = () => {
+    setSaving(true);
+    try {
+      const blob = buildPdfBlob(captured);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filename}-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl flex flex-col w-[440px] max-h-[90vh] overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 dark:border-zinc-700 flex-shrink-0">
+          <div>
+            <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-100">ตัวอย่างก่อนพิมพ์</h3>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              {captured.widthMm}mm × {Math.round(captured.heightMm)}mm
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Preview image */}
+        <div className="flex-1 overflow-auto p-5 bg-zinc-100 dark:bg-zinc-800 flex items-start justify-center min-h-0">
+          <img
+            src={captured.imgData}
+            alt="Label preview"
+            style={{
+              width: '100%',
+              maxWidth: '320px',
+              height: 'auto',
+              display: 'block',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+              borderRadius: '6px',
+              background: '#fff',
+            }}
+          />
+        </div>
+
+        {/* Error */}
+        {printError && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 flex-shrink-0">
+            พิมพ์ไม่สำเร็จ: {printError}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex gap-2 px-5 py-4 border-t border-zinc-200 dark:border-zinc-700 flex-shrink-0">
+          <button
+            onClick={handlePrint}
+            disabled={printing}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors"
+          >
+            {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+            พิมพ์
+          </button>
+          <button
+            onClick={handleSavePdf}
+            disabled={saving}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+            PDF
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -256,8 +446,6 @@ function ShippingLabel({
   );
 }
 
-// ── Bill Label (barcode-only, compact) ───────────────────────────────────────
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function BarcodeLabelPanel() {
@@ -297,12 +485,16 @@ export default function BarcodeLabelPanel() {
     setShowBillIntro(false);
   };
 
-  // Actions
+  // Save state
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<'success' | 'error' | null>(null);
 
-  const [generating, setGenerating] = useState(false);
+  // Capture state — set when user triggers Print/PDF from the live preview
+  const [capturing, setCapturing] = useState(false);
   const labelRef = useRef<HTMLDivElement>(null);
+
+  // Preview modal — shown after capture for both live label and saved labels
+  const [previewData, setPreviewData] = useState<{ captured: CapturedLabel; filename: string } | null>(null);
 
   // Saved labels
   const [savedLabels, setSavedLabels] = useState<SavedLabel[]>([]);
@@ -310,6 +502,9 @@ export default function BarcodeLabelPanel() {
   const [nextId, setNextId] = useState(1);
 
   const [showDupModal, setShowDupModal] = useState(false);
+
+  // pendingPrint: a saved label whose hidden DOM has been rendered and is
+  // ready to capture. Set by printSaved(), consumed by the useEffect below.
   const [pendingPrint, setPendingPrint] = useState<SavedLabel | null>(null);
   const hiddenRef = useRef<HTMLDivElement>(null);
 
@@ -325,7 +520,7 @@ export default function BarcodeLabelPanel() {
       .finally(() => setProductsLoading(false));
   }, []);
 
-  // Close search dropdown
+  // Close search dropdown on outside click
   useEffect(() => {
     function onDown(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowResults(false);
@@ -335,10 +530,7 @@ export default function BarcodeLabelPanel() {
   }, []);
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setShowResults(false);
-      return;
-    }
+    if (!searchQuery.trim()) { setShowResults(false); return; }
     setShowResults(searchResults.length > 0);
   }, [searchQuery, searchResults]);
 
@@ -358,13 +550,17 @@ export default function BarcodeLabelPanel() {
   // Reset saved state when form changes
   useEffect(() => { setHasSavedCurrent(false); }, [items, recipientName, recipientPhone, recipientAddress]);
 
-  // Print saved label
+  // Capture the hidden label DOM for a saved label and open preview modal.
+  // The 150ms delay gives React time to mount the hidden ShippingLabel.
   useEffect(() => {
     if (!pendingPrint) return;
     const t = setTimeout(async () => {
       if (!hiddenRef.current) return;
       try {
-        await captureAndPrint(hiddenRef.current, pendingPrint.items.length === 0 ? 'bill' : 'label');
+        const mode = pendingPrint.items.length === 0 ? 'bill' : 'label';
+        const name = mode === 'bill' ? 'bill' : (pendingPrint.recipientName || 'label');
+        const captured = await captureLabel(hiddenRef.current);
+        setPreviewData({ captured, filename: name.replace(/\s+/g, '_') });
       } finally {
         setPendingPrint(null);
       }
@@ -426,6 +622,22 @@ export default function BarcodeLabelPanel() {
     const suffix = String(items.reduce((s, i) => (s * 31 + i.product.id + i.qty) % 1000000, 1)).padStart(6, '0');
     return `${ts}${suffix}`;
   }, [items, labelMode, nextId]);
+
+  // Capture the live label preview and open the preview modal.
+  // Used for both the "Print/PDF" toolbar buttons and the click-on-label shortcut.
+  const openLivePreview = useCallback(async () => {
+    if (!canGenerate || !labelRef.current || capturing) return;
+    setCapturing(true);
+    try {
+      const captured = await captureLabel(labelRef.current);
+      const name = labelMode === 'bill'
+        ? 'bill'
+        : (recipientName ? recipientName.replace(/\s+/g, '_') : 'label');
+      setPreviewData({ captured, filename: name });
+    } finally {
+      setCapturing(false);
+    }
+  }, [canGenerate, capturing, labelMode, recipientName]);
 
   const doSave = useCallback(async () => {
     setSaving(true);
@@ -489,26 +701,10 @@ export default function BarcodeLabelPanel() {
     doSave();
   }, [canGenerate, labelMode, items, savedLabels, recipientName, doSave]);
 
+  const printSaved = useCallback((label: SavedLabel) => {
+    setPendingPrint(label);
+  }, []);
 
-  const savePDF = useCallback(async () => {
-    if (!labelRef.current || !canGenerate) return;
-    setGenerating(true);
-    try {
-      const canvas = await html2canvas(labelRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
-      const imgData = canvas.toDataURL('image/png');
-      const pageW = 100;
-      // Compute page height proportionally from the captured canvas so the barcode
-      // is never stretched — same principle as height:auto in CSS.
-      const pageH = (canvas.height / canvas.width) * pageW;
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageW, pageH] });
-      pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH);
-      const name = labelMode === 'bill' ? 'bill' : (recipientName ? recipientName.replace(/\s+/g, '_') : 'label');
-      pdf.save(`${name}-${Date.now()}.pdf`);
-    } catch (err) { console.error('PDF error:', err); }
-    finally { setGenerating(false); }
-  }, [canGenerate, recipientName, labelMode]);
-
-  const printSaved = useCallback((label: SavedLabel) => { setPendingPrint(label); }, []);
   const deleteSaved = useCallback(async (id: number) => {
     const label = savedLabels.find(l => l.id === id);
     setSavedLabels(prev => prev.filter(l => l.id !== id));
@@ -671,7 +867,7 @@ export default function BarcodeLabelPanel() {
                   <div className="bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 rounded-xl px-4 py-3 shadow-xl">
                     <p className="text-xs font-semibold mb-1">โหมด บิล คืออะไร?</p>
                     <p className="text-[11px] leading-relaxed opacity-90">
-                      สร้างสลิปบาร์โค้ด (100×150 มม.) สำหรับแนบพัสดุ KEY
+                      สร้างสลิปบาร์โค้ดสำหรับแนบพัสดุ KEY
                       โดยไม่แสดงรายการสินค้า — เหมาะสำหรับพิมพ์ติดกล่องเพื่อสแกนเข้าระบบ
                     </p>
                     <button
@@ -688,32 +884,40 @@ export default function BarcodeLabelPanel() {
 
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mr-auto">
-              {labelMode === 'bill' ? 'บาร์โค้ดบิล (100×150 mm)' : 'ตัวอย่างป้าย (100×150 mm)'}
+              {labelMode === 'bill' ? 'บาร์โค้ดบิล' : 'ตัวอย่างป้าย'} — {PRINT_WIDTH_MM}mm × auto
             </h3>
-            <button onClick={savePDF} disabled={!canGenerate || generating} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-colors">
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} PDF
-            </button>
+            {/* Single button — captures then opens preview modal for both Print and PDF */}
             <button
-              onClick={() => lastSavedLabel && setPendingPrint(lastSavedLabel)}
-              disabled={!hasSavedCurrent}
-              title={!hasSavedCurrent ? 'บันทึกก่อนพิมพ์' : undefined}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-colors"
+              onClick={openLivePreview}
+              disabled={!canGenerate || capturing}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold transition-colors shadow-sm"
             >
-              <Printer size={14} /> พิมพ์
+              {capturing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+              {capturing ? 'กำลังเตรียม…' : 'พิมพ์ / PDF'}
             </button>
             <button onClick={saveLabel} disabled={!canGenerate || saving} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white hover:bg-zinc-700 dark:hover:bg-zinc-100 disabled:opacity-40 text-white dark:text-zinc-900 text-sm font-semibold transition-colors shadow-sm">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึก
             </button>
           </div>
 
+          {/* Save result feedback */}
+          {saveResult && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${saveResult === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>
+              {saveResult === 'success' ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+              {saveResult === 'success' ? 'บันทึกสำเร็จ' : 'บันทึกไม่สำเร็จ กรุณาลองใหม่'}
+            </div>
+          )}
+
+          {/* Live label preview — click to open preview modal */}
           <div
             className="flex justify-center cursor-pointer group relative"
-            title="คลิกเพื่อพิมพ์"
-            onClick={() => { if (labelRef.current) captureAndPrint(labelRef.current, labelMode) }}
+            title="คลิกเพื่อดูตัวอย่างก่อนพิมพ์"
+            onClick={openLivePreview}
           >
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 rounded-xl transition-colors pointer-events-none z-10" />
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-zinc-900/70 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1 pointer-events-none">
-              <Printer size={11} /> คลิกเพื่อพิมพ์
+              {capturing ? <Loader2 size={11} className="animate-spin" /> : <Printer size={11} />}
+              {capturing ? 'กำลังเตรียม…' : 'คลิกเพื่อพิมพ์'}
             </div>
             <div ref={labelRef}>
               <ShippingLabel
@@ -784,6 +988,17 @@ export default function BarcodeLabelPanel() {
         </div>
       </div>
 
+      {/* ── Modals ── */}
+
+      {/* Label Preview Modal */}
+      {previewData && (
+        <LabelPreviewModal
+          captured={previewData.captured}
+          filename={previewData.filename}
+          onClose={() => setPreviewData(null)}
+        />
+      )}
+
       {/* Variation Selection Modal */}
       {showVariationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -792,13 +1007,11 @@ export default function BarcodeLabelPanel() {
               <h3 className="text-lg font-semibold">เลือกตัวเลือกสินค้า</h3>
               <p className="text-sm text-zinc-500 mt-1">เลือกได้หลายตัวเลือก</p>
             </div>
-
             <div className="p-6 max-h-[60vh] overflow-y-auto">
               <div className="grid grid-cols-1 gap-2">
                 {modalVariants.map(variant => {
                   const { variant: varName } = splitProductAndVariant(variant.title);
                   const isSelected = selectedInModal.has(variant.id);
-
                   return (
                     <button
                       key={variant.id}
@@ -822,19 +1035,9 @@ export default function BarcodeLabelPanel() {
                 })}
               </div>
             </div>
-
             <div className="p-6 border-t border-zinc-200 dark:border-zinc-700 flex gap-3">
-              <button
-                onClick={() => setShowVariationModal(false)}
-                className="flex-1 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 font-medium text-zinc-700 dark:text-zinc-300"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={confirmAddFromModal}
-                disabled={selectedInModal.size === 0}
-                className="flex-1 py-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-semibold disabled:opacity-50"
-              >
+              <button onClick={() => setShowVariationModal(false)} className="flex-1 py-3 rounded-xl border border-zinc-200 dark:border-zinc-700 font-medium text-zinc-700 dark:text-zinc-300">ยกเลิก</button>
+              <button onClick={confirmAddFromModal} disabled={selectedInModal.size === 0} className="flex-1 py-3 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-semibold disabled:opacity-50">
                 เพิ่มสินค้า{selectedInModal.size > 0 ? ` (${selectedInModal.size})` : ''}
               </button>
             </div>
@@ -899,7 +1102,7 @@ export default function BarcodeLabelPanel() {
         </div>
       )}
 
-      {/* Hidden label for printing saved entries */}
+      {/* Hidden label DOM for re-printing saved entries */}
       <div style={{ position: 'fixed', left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
         {pendingPrint && (
           <div ref={hiddenRef}>
