@@ -52,6 +52,12 @@ export const sounds = {
     tone(230, 0.14, 'square', 0.18, 120)
   },
 
+  /** Double quick beep — already-packed / duplicate scan (success variant) */
+  scanDuplicate() {
+    tone(880, 0.07, 'sine', 0.22)
+    tone(880, 0.07, 'sine', 0.22, 110)
+  },
+
   /** Ascending two-note chime on confirm / pack complete */
   confirm() {
     tone(660, 0.07, 'sine', 0.2)

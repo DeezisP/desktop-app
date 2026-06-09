@@ -127,7 +127,7 @@ export default function PackingSidebar({
       setScanError({ msg, type: code === 'ALREADY_PACKED' ? 'packed' : 'error' });
 
       if (code === 'ALREADY_PACKED') {
-        sounds.scanSuccess();
+        sounds.scanDuplicate();
         flashCard('success');
       } else {
         sounds.scanError();
