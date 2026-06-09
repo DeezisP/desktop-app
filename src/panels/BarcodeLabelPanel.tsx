@@ -97,16 +97,18 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
 async function captureAndPrint(element: HTMLElement, mode: 'label' | 'bill' = 'label') {
   const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
   const imgData = canvas.toDataURL('image/png');
-  const [w, h, pw, ph] = [450, 720, '100mm', '150mm'];
-  const win = window.open('', '_blank', `width=${w},height=${h}`);
+  // 375px = ~100mm; compute actual height in mm to match exactly
+  const widthMm = 100;
+  const heightMm = Math.round((canvas.height / canvas.width) * widthMm);
+  const win = window.open('', '_blank', `width=${Math.round(canvas.width / 3)},height=${Math.round(canvas.height / 3)}`);
   if (!win) return;
   win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ'}</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#fff; }
-img { width:${pw}; height:auto; display:block; }
-@media print { @page { size:${pw} ${ph}; margin:0; } }
+body { background:#fff; width:${widthMm}mm; }
+img { width:${widthMm}mm; height:${heightMm}mm; display:block; }
+@media print { @page { size:${widthMm}mm ${heightMm}mm; margin:0; } }
 </style></head><body>
 <img src="${imgData}" onload="window.print();window.close();" />
 </body></html>`);
@@ -689,7 +691,15 @@ export default function BarcodeLabelPanel() {
             </button>
           </div>
 
-          <div className="flex justify-center">
+          <div
+            className="flex justify-center cursor-pointer group relative"
+            title="คลิกเพื่อพิมพ์"
+            onClick={() => { if (labelRef.current) captureAndPrint(labelRef.current, labelMode) }}
+          >
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 dark:group-hover:bg-white/5 rounded-xl transition-colors pointer-events-none z-10" />
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 bg-zinc-900/70 text-white text-xs px-2 py-1 rounded-lg flex items-center gap-1 pointer-events-none">
+              <Printer size={11} /> คลิกเพื่อพิมพ์
+            </div>
             <div ref={labelRef}>
               <ShippingLabel
                 items={items}

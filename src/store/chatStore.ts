@@ -21,6 +21,7 @@ interface ChatState {
   partnerLastReadId: Record<number, number | null>
 
   setRooms: (rooms: ChatRoom[] | null | undefined) => void
+  removeRoom: (roomId: number) => void
   setActiveRoom: (roomId: number | null) => void
   prependMessages: (roomId: number, messages: ChatMessage[], nextCursor: string | null, hasMore: boolean) => void
   appendMessage: (message: ChatMessage) => void
@@ -55,6 +56,10 @@ export const useChatStore = create<ChatState>((set) => ({
   // Always coerce to array — guards against null/undefined from API
   setRooms(rooms) {
     set({ rooms: Array.isArray(rooms) ? rooms : [] })
+  },
+
+  removeRoom(roomId) {
+    set((s) => ({ rooms: (s.rooms ?? []).filter((r) => r.id !== roomId) }))
   },
 
   setActiveRoom(roomId) {

@@ -15,6 +15,7 @@ import type { ChatMessage } from '../../types/chat'
 interface Props {
   roomId: number
   onLoadMore: (roomId: number, beforeId: number) => void
+  onDeleteMessage?: (messageId: number) => void
 }
 
 function isSameDay(a: string, b: string) {
@@ -58,6 +59,7 @@ const DateSeparator = memo(function DateSeparator({ label }: { label: string }) 
 export const ChatMessageList = memo(function ChatMessageList({
   roomId,
   onLoadMore,
+  onDeleteMessage,
 }: Props) {
   const user = useAuthStore((s) => s.user)
   const messages = useChatStore((s) => s.messages[roomId] ?? [])
@@ -65,6 +67,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   const loading = useChatStore((s) => s.loadingMessages[roomId] ?? false)
   const typingSet = useChatStore((s) => s.typing[roomId])
   const typingNames = typingSet ? Array.from(typingSet) : []
+  const partnerLastReadId = useChatStore((s) => s.partnerLastReadId[roomId] ?? 0)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -145,6 +148,8 @@ export const ChatMessageList = memo(function ChatMessageList({
           message={msg}
           isOwn={isOwn}
           showSender={showSender}
+          isRead={isOwn && msg.id > 0 && msg.id <= partnerLastReadId}
+          onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
         />,
       )
 

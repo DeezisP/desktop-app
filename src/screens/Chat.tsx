@@ -5,7 +5,6 @@ import { useChat } from '../hooks/useChat'
 import { ChatRoomList } from '../components/chat/ChatRoomList'
 import { ChatMessageList } from '../components/chat/ChatMessageList'
 import { ChatInput } from '../components/chat/ChatInput'
-import { TypingIndicator } from '../components/chat/TypingIndicatorDisplay'
 import { selectTotalUnread } from '../store/chatStore'
 
 function EmptyRoomPlaceholder() {
@@ -24,9 +23,7 @@ export default function Chat() {
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const rooms = useChatStore((s) => s.rooms ?? [])
   const totalUnread = useChatStore(selectTotalUnread)
-  const typingSet = useChatStore((s) => s.typing[activeRoomId ?? -1] ?? new Set())
-  const typingNames = Array.from(typingSet)
-  const { loadRooms, loadMessages, sendMessage, notifyTyping, markRoomRead } = useChat()
+  const { loadRooms, loadMessages, sendMessage, notifyTyping, markRoomRead, deleteRoom, deleteMessage } = useChat()
 
   const setActiveRoom = useChatStore((s) => s.setActiveRoom)
   const messages = useChatStore((s) => (activeRoomId ? (s.messages ?? {})[activeRoomId] : undefined))
@@ -131,7 +128,7 @@ export default function Chat() {
           </button>
         </div>
 
-        <ChatRoomList onSelectRoom={handleSelectRoom} />
+        <ChatRoomList onSelectRoom={handleSelectRoom} onDeleteRoom={deleteRoom} />
       </aside>
       )}
 
@@ -150,12 +147,11 @@ export default function Chat() {
             </div>
 
             {/* Messages */}
-            <ChatMessageList roomId={activeRoomId} onLoadMore={handleLoadMore} />
-
-            {/* Typing Indicator */}
-            {typingNames.length > 0 && (
-              <TypingIndicator names={typingNames} />
-            )}
+            <ChatMessageList
+              roomId={activeRoomId}
+              onLoadMore={handleLoadMore}
+              onDeleteMessage={deleteMessage}
+            />
 
             {/* Input */}
             <ChatInput onSend={handleSend} onTyping={handleTyping} />

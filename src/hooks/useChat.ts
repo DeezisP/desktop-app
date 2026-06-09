@@ -49,6 +49,7 @@ export function useChat() {
     outboundQueue,
     setRooms,
     appendMessage,
+    softDeleteMessage,
     setTyping,
     setPresence,
     clearUnread,
@@ -58,6 +59,7 @@ export function useChat() {
     addToQueue,
     removeFromQueue,
     setPartnerLastReadId,
+    removeRoom,
   } = useChatStore()
 
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -236,6 +238,29 @@ export function useChat() {
     }
   }, [isAuthenticated])
 
+  // ── Delete a room ───────────────────────────────────────────────────────────
+
+  const deleteRoom = useCallback(async (roomId: number) => {
+    removeRoom(roomId)
+    try {
+      await chatApi.deleteRoom(roomId)
+    } catch (err) {
+      console.error('[useChat] deleteRoom failed', err)
+      loadRooms() // re-fetch to restore if delete failed
+    }
+  }, [removeRoom, loadRooms])
+
+  // ── Delete a message ────────────────────────────────────────────────────────
+
+  const deleteMessage = useCallback(async (messageId: number) => {
+    softDeleteMessage(messageId)
+    try {
+      await chatApi.deleteMessage(messageId)
+    } catch (err) {
+      console.error('[useChat] deleteMessage failed', err)
+    }
+  }, [softDeleteMessage])
+
   // ── Subscribe to admin notification topic ──────────────────────────────────
 
   useEffect(() => {
@@ -244,9 +269,11 @@ export function useChat() {
       '/topic/admin/notifications',
       (msg) => {
         try {
-          const room = JSON.parse(msg.body)
-          if (room && typeof room.id === 'number') {
-            // Refresh room list so new rooms appear
+          const payload = JSON.parse(msg.body)
+          if (payload?.action === 'ROOM_DELETED' && payload.roomId != null) {
+            removeRoom(Number(payload.roomId))
+          } else if (payload && typeof payload.id === 'number') {
+            // New room created — refresh list
             loadRooms()
           }
         } catch {
@@ -255,7 +282,7 @@ export function useChat() {
       },
     )
     return unsub
-  }, [isAuthenticated, loadRooms])
+  }, [isAuthenticated, loadRooms, removeRoom])
 
   // ── Subscribe to admin presence topic ──────────────────────────────────────
 
@@ -301,7 +328,9 @@ export function useChat() {
       (msg) => {
         try {
           const payload = JSON.parse(msg.body)
-          if (isValidChatMessage(payload)) {
+          if (payload?.action === 'DELETE_MESSAGE' && payload.messageId != null) {
+            softDeleteMessage(Number(payload.messageId))
+          } else if (isValidChatMessage(payload)) {
             appendMessage(payload)
             lastSeenMessageRef.current[activeRoomId] = payload.id
           }
@@ -371,5 +400,7 @@ export function useChat() {
     sendMessage,
     notifyTyping,
     markRoomRead,
+    deleteRoom,
+    deleteMessage,
   }
 }

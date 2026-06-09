@@ -1,10 +1,11 @@
 import { memo } from 'react'
-import { Users, User, Loader2 } from 'lucide-react'
+import { Users, User, Loader2, Trash2 } from 'lucide-react'
 import { useChatStore, selectSortedRooms } from '../../store/chatStore'
 import type { ChatRoom } from '../../types/chat'
 
 interface Props {
   onSelectRoom: (roomId: number) => void
+  onDeleteRoom?: (roomId: number) => void
 }
 
 function formatRelativeTime(iso: string | null): string {
@@ -25,27 +26,27 @@ const RoomItem = memo(function RoomItem({
   room,
   isActive,
   onClick,
+  onDelete,
 }: {
   room: ChatRoom
   isActive: boolean
   onClick: () => void
+  onDelete?: () => void
 }) {
-  // Defensive: Ensure room has valid display name
-  const displayName = room.name?.trim() 
-    ? room.name 
-    : room.guestToken 
+  const displayName = room.name?.trim()
+    ? room.name
+    : room.guestToken
       ? `Guest (${room.guestToken.substring(0, 8)}...)`
       : `Room #${room.id}`
-  
+
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-        isActive
-          ? 'bg-blue-50 dark:bg-blue-950/50'
-          : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
-      }`}
-    >
+    <div className={`group relative flex items-center transition-all duration-150 ${
+      isActive ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
+    }`}>
+      <button
+        onClick={onClick}
+        className="flex-1 flex items-center gap-2.5 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      >
       {/* Avatar */}
       <div className="flex-shrink-0 relative">
         <div
@@ -89,11 +90,25 @@ const RoomItem = memo(function RoomItem({
           )}
         </div>
       </div>
-    </button>
+      </button>
+
+      {onDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            if (window.confirm(`ลบห้องสนทนา "${displayName}" ใช่ไหม?`)) onDelete()
+          }}
+          className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1.5 mr-1.5 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+          title="ลบห้องสนทนา"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
+    </div>
   )
 })
 
-export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) {
+export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom, onDeleteRoom }: Props) {
   const allRooms = useChatStore(selectSortedRooms)
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const loading = useChatStore((s) => s.loadingRooms)
@@ -128,6 +143,7 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) 
             room={room}
             isActive={room.id === activeRoomId}
             onClick={() => onSelectRoom(room.id)}
+            onDelete={onDeleteRoom ? () => onDeleteRoom(room.id) : undefined}
           />
         ))}
       </div>

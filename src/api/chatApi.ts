@@ -47,6 +47,10 @@ export const chatApi = {
     return apiClient.post(`/chat/rooms/${roomId}/read`).then(() => undefined)
   },
 
+  deleteRoom(roomId: number): Promise<void> {
+    return apiClient.delete(`/chat/rooms/${roomId}`).then(() => undefined)
+  },
+
   deleteMessage(messageId: number): Promise<void> {
     return apiClient.delete(`/chat/messages/${messageId}`).then(() => undefined)
   },

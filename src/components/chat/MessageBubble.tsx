@@ -1,11 +1,13 @@
 import { memo } from 'react'
-import { Check, CheckCheck, Pencil } from 'lucide-react'
+import { Check, CheckCheck, Pencil, Trash2 } from 'lucide-react'
 import type { ChatMessage } from '../../types/chat'
 
 interface Props {
   message: ChatMessage
   isOwn: boolean
   showSender: boolean
+  isRead?: boolean
+  onDelete?: () => void
 }
 
 function formatTime(iso: string): string {
@@ -23,6 +25,8 @@ export const MessageBubble = memo(function MessageBubble({
   message,
   isOwn,
   showSender,
+  isRead,
+  onDelete,
 }: Props) {
   if (message.isDeleted) {
     return (
@@ -40,15 +44,28 @@ export const MessageBubble = memo(function MessageBubble({
       ? 'Guest'
       : 'Unknown'
 
+  const read = isRead ?? message.isRead
+
   return (
-    <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-1`}>
+    <div className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-1`}>
       {showSender && !isOwn && (
         <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 px-1 mb-0.5">
           {senderName}
         </span>
       )}
 
-      <div className={`flex items-end gap-1.5 max-w-[72%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div className={`flex items-end gap-1 max-w-[72%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
+        {/* Delete button — appears on hover */}
+        {onDelete && (
+          <button
+            onClick={() => onDelete()}
+            className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all flex-shrink-0 self-center"
+            title="ลบข้อความ"
+          >
+            <Trash2 size={11} />
+          </button>
+        )}
+
         {/* Bubble */}
         <div
           className={`relative px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
@@ -73,7 +90,7 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
           {isOwn && (
             <span className="text-[10px]">
-              {message.isRead ? (
+              {read ? (
                 <CheckCheck size={11} className="text-blue-400" />
               ) : (
                 <Check size={11} className="text-zinc-400" />
