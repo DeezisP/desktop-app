@@ -94,11 +94,14 @@ const RoomItem = memo(function RoomItem({
 })
 
 export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom }: Props) {
-  const rooms = useChatStore(selectSortedRooms)
+  const allRooms = useChatStore(selectSortedRooms)
   const activeRoomId = useChatStore((s) => s.activeRoomId)
   const loading = useChatStore((s) => s.loadingRooms)
 
-if (loading && rooms.length === 0) {
+  // Only show rooms that have at least one message
+  const rooms = allRooms.filter((r) => r.lastMessage != null)
+
+  if (loading && rooms.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 size={20} className="animate-spin text-zinc-400" />

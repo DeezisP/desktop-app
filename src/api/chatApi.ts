@@ -37,10 +37,8 @@ export const chatApi = {
 
   sendMessage(roomId: number, messageText: string, clientMessageId: string): Promise<ChatMessage> {
     return apiClient
-      .post<ChatMessage>('/chat/messages/send', {
-        roomId,
-        messageText,
-        clientMessageId,
+      .post<ChatMessage>('/chat/messages/send', null, {
+        params: { roomId, text: messageText, clientMessageId },
       })
       .then((r) => r.data)
   },
