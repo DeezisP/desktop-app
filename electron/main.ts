@@ -455,7 +455,7 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
 // No custom protocol registration or reinstall needed.
 
 export type GoogleLoginResult =
-  | { success: true;  accessToken: string }
+  | { success: true;  accessToken: string; refreshToken?: string }
   | { success: false; error: string }
 
 const GOOGLE_CLIENT_ID = '970539775014-pdsiuqc987ses2n4o00e48geb2d2uikg.apps.googleusercontent.com'
@@ -497,11 +497,19 @@ ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
     // Poll every 2 s — backend returns { pending:true } until OAuth completes
     googlePollInterval = setInterval(async () => {
       try {
+        // Include the stored device token so the backend can record the IP / trust the device
+        const deviceTokenBuf = tokenStore.get('device_token')
+        const deviceToken = deviceTokenBuf
+          ? (safeStorage.isEncryptionAvailable()
+              ? safeStorage.decryptString(deviceTokenBuf)
+              : deviceTokenBuf.toString('utf8'))
+          : undefined
+
         const resp = await net.fetch(REDEEM_URL, {
           method:      'POST',
           headers:     { 'Content-Type': 'application/json', 'Origin': PRODUCTION_ORIGIN },
           credentials: 'include',
-          body:        JSON.stringify({ nonce }),
+          body:        JSON.stringify({ nonce, ...(deviceToken ? { deviceToken } : {}) }),
         })
 
         if (!resp.ok) {
@@ -514,7 +522,7 @@ ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
           return
         }
 
-        const data = await resp.json() as { pending?: boolean; token?: string }
+        const data = await resp.json() as { pending?: boolean; token?: string; refreshToken?: string }
         if (data.pending) return   // OAuth not complete yet — keep polling
 
         stopGooglePoll()
@@ -523,7 +531,13 @@ ipcMain.handle('auth:google', (): Promise<GoogleLoginResult> => {
           return
         }
         log('[google-auth] poll complete — access token obtained')
-        resolve({ success: true, accessToken: data.token })
+        // Bring the app window to the foreground so the user sees login success
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.show()
+          mainWindow.focus()
+        }
+        resolve({ success: true, accessToken: data.token, refreshToken: data.refreshToken })
       } catch {
         // Network error during poll — keep trying
       }

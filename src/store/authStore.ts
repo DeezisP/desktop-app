@@ -154,12 +154,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
           if (result.error === 'cancelled') return
           throw new Error(result.error)
         }
-        const { accessToken } = result
+        const { accessToken, refreshToken: rt } = result
         if (api) {
           await api.saveToken('access_token', accessToken)
+          if (rt) await api.saveToken('refresh_token', rt)
         } else {
           sessionStorage.setItem('access_token', accessToken)
+          if (rt) sessionStorage.setItem('refresh_token', rt)
         }
+        if (rt) setStoredRefreshToken(rt)
         set({ token: accessToken })
         const user = await authApi.getMe()
         set({ user, isAuthenticated: true })

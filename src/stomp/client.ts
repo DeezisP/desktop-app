@@ -118,7 +118,7 @@ class WarehouseStompClient {
       handler,
       sub: null,
     }
-    if (this.client && this.connected) {
+    if (this.client && this.connected && this.client.connected) {
       entry.sub = this.client.subscribe(topic, handler)
       console.log('[stomp] subscribed generic topic:', topic)
     }
@@ -137,11 +137,15 @@ class WarehouseStompClient {
 
   /** Publish a message to a STOMP destination. No-op if not connected. */
   publish(destination: string, body: string): void {
-    if (!this.client || !this.connected) {
+    if (!this.client || !this.connected || !this.client.connected) {
       console.warn('[stomp] publish skipped (not connected):', destination)
       return
     }
-    this.client.publish({ destination, body })
+    try {
+      this.client.publish({ destination, body })
+    } catch (err) {
+      console.warn('[stomp] publish threw (connection dropped mid-flight):', err)
+    }
   }
 
   disconnect() {
