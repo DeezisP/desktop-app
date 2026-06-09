@@ -89,9 +89,9 @@ export default function Chat() {
   )
 
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, file?: File) => {
       if (!activeRoomId) return
-      sendMessage(activeRoomId, content)
+      sendMessage(activeRoomId, content, file)
     },
     [activeRoomId, sendMessage],
   )

@@ -118,23 +118,30 @@ export function useChat() {
   // ── Send a message ──────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
-    async (roomId: number, content: string) => {
+    async (roomId: number, content: string, file?: File) => {
       const trimmed = content.trim()
-      if (!trimmed) return
+      if (!trimmed && !file) return
 
       const clientMessageId = crypto.randomUUID()
       const msg: OutboundMessage = { clientMessageId, roomId, content: trimmed }
 
-      if (!warehouseStompClient.isConnected()) {
+      if (!file && !warehouseStompClient.isConnected()) {
         addToQueue(msg)
         return
       }
 
       try {
-        await chatApi.sendMessage(roomId, trimmed, clientMessageId)
+        let fileUrl: string | undefined
+        let fileType: string | undefined
+        if (file) {
+          const up = await chatApi.uploadFile(file)
+          fileUrl = up.fileUrl
+          fileType = up.fileType || file.type
+        }
+        await chatApi.sendMessage(roomId, trimmed, clientMessageId, fileUrl, fileType)
       } catch (err) {
         console.error('[useChat] sendMessage failed', err)
-        addToQueue(msg)
+        if (!file) addToQueue(msg)
       }
     },
     [addToQueue],

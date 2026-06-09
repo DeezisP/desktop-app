@@ -35,10 +35,32 @@ export const chatApi = {
       .catch(() => ({}))
   },
 
-  sendMessage(roomId: number, messageText: string, clientMessageId: string): Promise<ChatMessage> {
+  uploadFile(file: File): Promise<{ fileUrl: string; fileType: string }> {
+    const form = new FormData()
+    form.append('file', file)
+    return apiClient
+      .post<{ fileUrl: string; fileType: string }>('/chat/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+
+  sendMessage(
+    roomId: number,
+    messageText: string,
+    clientMessageId: string,
+    fileUrl?: string,
+    fileType?: string,
+  ): Promise<ChatMessage> {
     return apiClient
       .post<ChatMessage>('/chat/messages/send', null, {
-        params: { roomId, text: messageText, clientMessageId },
+        params: {
+          roomId,
+          text: messageText,
+          clientMessageId,
+          ...(fileUrl ? { fileUrl } : {}),
+          ...(fileType ? { fileType } : {}),
+        },
       })
       .then((r) => r.data)
   },
