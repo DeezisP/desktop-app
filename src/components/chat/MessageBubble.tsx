@@ -98,11 +98,14 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         <div className={`flex items-end gap-1 max-w-[72%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
-          {/* Delete button on hover */}
+          {/* Delete button — always slightly visible, full opacity on hover */}
           {onDelete && (
             <button
-              onClick={() => onDelete()}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all flex-shrink-0 self-center"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (window.confirm('ลบข้อความนี้ใช่ไหม?')) onDelete()
+              }}
+              className="opacity-20 hover:opacity-100 p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all flex-shrink-0 self-center"
               title="ลบข้อความ"
             >
               <Trash2 size={11} />

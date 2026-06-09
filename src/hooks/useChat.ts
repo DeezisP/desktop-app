@@ -260,14 +260,12 @@ export function useChat() {
   // ── Delete a message ────────────────────────────────────────────────────────
 
   const deleteMessage = useCallback(async (messageId: number) => {
-    if (!window.confirm('ลบข้อความนี้ใช่ไหม?')) return
     const roomId = activeRoomId
     softDeleteMessage(messageId)
     try {
       await chatApi.deleteMessage(messageId)
     } catch (err) {
       console.error('[useChat] deleteMessage failed', err)
-      // Rollback: reload messages so the undeleted message reappears
       if (roomId) loadMessages(roomId)
     }
   }, [softDeleteMessage, activeRoomId, loadMessages])
