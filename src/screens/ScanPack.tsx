@@ -47,10 +47,7 @@ export function ScanPack() {
 
         {lastScan && (
           <div className="rounded-xl border border-brand-600/40 bg-slate-900 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-brand-400">Last Scan</p>
-              <StatusBadge value={lastScan.status} />
-            </div>
+            <p className="text-xs font-medium text-brand-400">Last Scan</p>
             <p className="font-mono text-sm text-white">{lastScan.orderNumber}</p>
             {lastScan.order && (
               <div className="space-y-1">
