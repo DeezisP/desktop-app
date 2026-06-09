@@ -92,6 +92,17 @@ export interface ImportResult {
   newCount: number;
   skippedCount: number;
 }
+export interface StockLogEntry {
+  id: number;
+  productId: number;
+  productTitle: string;
+  changeAmount: number;
+  beforeStock: number;
+  afterStock: number;
+  reason: string | null;
+  referenceId: string | null;
+  createdAt: string;
+}
 export interface ImportHistoryEntry {
   id: number;
   platform: string;
@@ -231,6 +242,11 @@ const WarehouseService = {
   notifyPackingQueue: (total: number, carriers: Record<string, number>) =>
     apiClient.post(`${API_BASE}/scan/notify-packing`, { total, carriers })
       .catch(err => { console.error('[notifyPackingQueue]', err?.response?.status, err?.message); return null; }),
+
+  getStockLogs: (date?: string) =>
+    apiClient.get<BackendApiResponse<StockLogEntry[]>>(
+      `${API_BASE}/products/stock-logs`,
+      { params: date ? { date } : {} }),
 };
 
 export default WarehouseService;

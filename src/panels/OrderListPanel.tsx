@@ -159,8 +159,8 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
   const [matchAnchor, setMatchAnchor]   = useState<{ top: number; left: number } | null>(null);
   const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [queueMap, setQueueMap]         = useState<Map<string, BackendQueueStatus>>(new Map());
-  const [dateFilter, setDateFilter]     = useState<string | null>(null);
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [dateFilter, setDateFilter]     = useState<string | null>(TODAY_STR);
+  const [availableDates, setAvailableDates] = useState<string[]>([TODAY_STR]);
 
   const loadOrders = useCallback(async (
     filter: StatusFilter = statusFilter,
@@ -175,11 +175,9 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
       ]);
       const pg = ordersRes.data.data;
       setOrders(pg.content);
-      if (date == null) {
-        const seen = new Set<string>();
-        for (const o of pg.content) seen.add(toDateKey(o.createdAt));
-        setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
-      }
+      const seen = new Set<string>();
+      for (const o of pg.content) seen.add(toDateKey(o.createdAt));
+      setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
       const map = new Map<string, BackendQueueStatus>();
       for (const entry of queueRes.data.data.content) {
         if (entry.status === 'WAITING' || entry.status === 'PACKING') {
