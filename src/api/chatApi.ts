@@ -1,12 +1,11 @@
 import { apiClient } from './client'
 import type { ChatRoom, ChatMessage, PagedMessageResponse } from '../types/chat'
-import type { ApiResponse } from '../types/api'
 
 export const chatApi = {
   getRooms(): Promise<ChatRoom[]> {
     return apiClient
-      .get<ApiResponse<ChatRoom[]>>('/chat/rooms/active')
-      .then((r) => (Array.isArray(r.data?.data) ? r.data.data : []))
+      .get<ChatRoom[]>('/chat/rooms/active')
+      .then((r) => (Array.isArray(r.data) ? r.data : []))
   },
 
   getMessages(roomId: number, beforeId?: number, limit = 50): Promise<PagedMessageResponse> {
@@ -23,27 +22,27 @@ export const chatApi = {
 
   getMessagesSince(roomId: number, sinceId: number): Promise<ChatMessage[]> {
     return apiClient
-      .get<ApiResponse<ChatMessage[]>>(`/chat/rooms/${roomId}/messages/since`, {
+      .get<ChatMessage[]>(`/chat/rooms/${roomId}/messages/since`, {
         params: { sinceId },
       })
-      .then((r) => (Array.isArray(r.data?.data) ? r.data.data : []))
+      .then((r) => (Array.isArray(r.data) ? r.data : []))
   },
 
   getReadState(roomId: number): Promise<{ partnerLastReadMessageId?: number | null }> {
     return apiClient
-      .get<ApiResponse<{ partnerLastReadMessageId?: number | null }>>(`/chat/rooms/${roomId}/read-state`)
-      .then((r) => r.data?.data ?? {})
+      .get<{ partnerLastReadMessageId?: number | null }>(`/chat/rooms/${roomId}/read-state`)
+      .then((r) => r.data ?? {})
       .catch(() => ({}))
   },
 
   sendMessage(roomId: number, messageText: string, clientMessageId: string): Promise<ChatMessage> {
     return apiClient
-      .post<ApiResponse<ChatMessage>>('/chat/messages/send', {
+      .post<ChatMessage>('/chat/messages/send', {
         roomId,
         messageText,
         clientMessageId,
       })
-      .then((r) => r.data.data)
+      .then((r) => r.data)
   },
 
   markRead(roomId: number): Promise<void> {
