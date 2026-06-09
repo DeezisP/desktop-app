@@ -21,12 +21,11 @@ export interface PackingSidebarProps {
   queueLoading: boolean;
   onLoadQueue: () => void;
   onEntryUpserted: (entry: ScanQueueEntry) => void;
-  onHeldBarcodesRefresh: () => void;
   onSearchActive?: (active: boolean) => void;
 }
 
 export default function PackingSidebar({
-  connected, queueLoading, onLoadQueue, onEntryUpserted, onHeldBarcodesRefresh, onSearchActive,
+  connected, queueLoading, onLoadQueue, onEntryUpserted, onSearchActive,
 }: PackingSidebarProps) {
 
   // ── Scanner state ──────────────────────────────────────────────────────────
@@ -133,7 +132,6 @@ export default function PackingSidebar({
       } else {
         sounds.scanError();
         flashCard('error');
-        onHeldBarcodesRefresh();
         sendDesktopNotification('พบบาร์โค้ดที่ถูกระงับ', msg);
       }
     } finally {
@@ -141,7 +139,7 @@ export default function PackingSidebar({
       setScanLoading(false);
       inputRef.current?.focus({ preventScroll: true });
     }
-  }, [scanInput, scanLoading, onEntryUpserted, onHeldBarcodesRefresh, flashCard]);
+  }, [scanInput, scanLoading, onEntryUpserted, flashCard]);
 
   const handleQuickAdd = useCallback(async () => {
     if (!qaProduct) return;

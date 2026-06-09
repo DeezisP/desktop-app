@@ -6,7 +6,7 @@ import {
   Package, Trash2, Search, X, Plus, Smartphone, Clock,
 } from 'lucide-react';
 import WarehouseService, {
-  ScanQueueEntry, BackendOrderItem, BackendQueueStatus, WarehouseProduct, HeldBarcode,
+  ScanQueueEntry, BackendOrderItem, BackendQueueStatus, WarehouseProduct,
 } from '../service/WarehouseService';
 import {
   STATUS_META, STATUS_BAR,
@@ -36,8 +36,6 @@ function QueueSkeletonRow() {
 export interface PackingQueueListProps {
   queue: ScanQueueEntry[];
   queueLoading: boolean;
-  heldBarcodes: HeldBarcode[];
-  onClearHeldBarcodes: () => void;
   confirmingIds: Set<number>;
   confirmErrors: Record<number, string>;
   cancellingIds: Set<number>;
@@ -53,7 +51,7 @@ export interface PackingQueueListProps {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PackingQueueList({
-  queue, queueLoading, heldBarcodes, onClearHeldBarcodes,
+  queue, queueLoading,
   confirmingIds, confirmErrors, cancellingIds, bulkConfirming,
   onConfirm, onCancel, onBulkConfirm,
   onUpdateItem, onAddItem, onRemoveItem,
@@ -110,34 +108,6 @@ export default function PackingQueueList({
           </button>
         )}
       </div>
-
-      {/* Held barcodes */}
-      {heldBarcodes.length > 0 && (
-        <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/10 p-3 flex-shrink-0">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium">
-              <AlertTriangle size={13} />
-              รอคิว Hold ({heldBarcodes.length})
-            </div>
-            <button
-              onClick={onClearHeldBarcodes}
-              className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline">
-              ลบทั้งหมด
-            </button>
-          </div>
-          <div className="space-y-1 max-h-36 overflow-y-auto">
-            {heldBarcodes.map(h => (
-              <div key={h.id} className="flex items-center justify-between bg-white dark:bg-zinc-800/80 rounded-lg px-2.5 py-1.5 text-xs">
-                <span className="font-mono text-zinc-700 dark:text-zinc-300 truncate">{h.barcode}</span>
-                <span className="text-zinc-400 ml-2 shrink-0">
-                  {new Date(h.scannedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] text-amber-500 dark:text-amber-600">จะถูกลบเมื่อกด ยืนยันแพ็คทั้งหมด</p>
-        </div>
-      )}
 
       {/* Queue list */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-1">

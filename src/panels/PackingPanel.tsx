@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import WarehouseService, {
-  ScanQueueEntry, BackendOrderItem, HeldBarcode,
+  ScanQueueEntry, BackendOrderItem,
 } from '../service/WarehouseService';
 import { useStompContext as useStomp } from '../hooks/useStompContext';
 import PackingSidebar from './PackingSidebar';
@@ -15,7 +15,6 @@ export default function PackingPanel() {
   // ── Shared queue state ────────────────────────────────────────────────────
   const [queue, setQueue]           = useState<ScanQueueEntry[]>([]);
   const [queueLoading, setQueueLoading] = useState(true);
-  const [heldBarcodes, setHeldBarcodes] = useState<HeldBarcode[]>([]);
 
   // ── Confirm / cancel state ─────────────────────────────────────────────────
   const [confirmingIds, setConfirmingIds] = useState<Set<number>>(new Set());
@@ -33,26 +32,18 @@ export default function PackingPanel() {
     finally { setQueueLoading(false); }
   }, []);
 
-  const loadHeldBarcodes = useCallback(async () => {
-    try {
-      const res = await WarehouseService.getHeldBarcodes();
-      setHeldBarcodes(res.data.data);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => { loadQueue(); loadHeldBarcodes(); }, [loadQueue, loadHeldBarcodes]);
+  useEffect(() => { loadQueue(); }, [loadQueue]);
 
   // ── STOMP — live queue updates ────────────────────────────────────────────
   useEffect(() => {
     return subscribe('/topic/admin/warehouse/queue', (msg) => {
       try {
         const event = JSON.parse(msg.body) as {
-          type: 'SCANNED' | 'CONFIRMED' | 'CANCELLED' | 'ITEM_ADDED' | 'HELD_UPDATED';
+          type: 'SCANNED' | 'CONFIRMED' | 'CANCELLED' | 'ITEM_ADDED';
           entry?: ScanQueueEntry;
           queueId?: number;
           orderId?: number;
           item?: BackendOrderItem;
-          held?: HeldBarcode[];
         };
         if (event.type === 'SCANNED' && event.entry) {
           setQueue(prev => {
@@ -65,8 +56,6 @@ export default function PackingPanel() {
           setQueue(prev => prev.map(q => q.id === event.entry!.id ? event.entry! : q));
         } else if (event.type === 'CANCELLED' && event.queueId != null) {
           setQueue(prev => prev.filter(q => q.id !== event.queueId));
-        } else if (event.type === 'HELD_UPDATED' && event.held != null) {
-          setHeldBarcodes(event.held);
         } else if (event.type === 'ITEM_ADDED' && event.orderId != null && event.item) {
           const incoming = event.item;
           setQueue(prev => prev.map(q => {
@@ -149,7 +138,6 @@ export default function PackingPanel() {
         })
       );
       WarehouseService.notifyPackingQueue(pending.length, carriers);
-      WarehouseService.clearHeldBarcodes().then(() => setHeldBarcodes([])).catch(() => {});
     } catch (err) {
       console.error('Bulk confirm unexpected error:', err);
     } finally {
@@ -205,17 +193,12 @@ export default function PackingPanel() {
           queueLoading={queueLoading}
           onLoadQueue={loadQueue}
           onEntryUpserted={handleEntryUpserted}
-          onHeldBarcodesRefresh={loadHeldBarcodes}
           onSearchActive={setSearchActive}
         />
 
         <PackingQueueList
           queue={queue}
           queueLoading={queueLoading}
-          heldBarcodes={heldBarcodes}
-          onClearHeldBarcodes={() =>
-            WarehouseService.clearHeldBarcodes().then(() => setHeldBarcodes([])).catch(() => {})
-          }
           confirmingIds={confirmingIds}
           confirmErrors={confirmErrors}
           cancellingIds={cancellingIds}
