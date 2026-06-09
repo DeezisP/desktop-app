@@ -14,6 +14,8 @@ export type ElectronAPI = {
   logPath:     ()                            => Promise<string>
   /** Send a native desktop notification via the main process */
   showNotification: (title: string, body?: string) => Promise<void>
+  /** Print an HTML string via the native OS print dialog (avoids Chromium print-preview issues) */
+  printHtml: (html: string) => Promise<{ ok: boolean; error?: string }>
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   /** Open Google OAuth popup and return access token on success */
@@ -45,6 +47,7 @@ const api: ElectronAPI = {
   readLog:     ()           => ipcRenderer.invoke('log:read'),
   logPath:     ()           => ipcRenderer.invoke('log:path'),
   showNotification: (title, body) => ipcRenderer.invoke('notify:show', title, body),
+  printHtml: (html) => ipcRenderer.invoke('print:html', html),
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   googleLogin: () => ipcRenderer.invoke('auth:google'),

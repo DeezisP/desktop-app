@@ -1,6 +1,7 @@
 import { memo } from 'react'
-import { Check, CheckCheck, Pencil, Trash2 } from 'lucide-react'
+import { Check, CheckCheck, Pencil, Trash2, FileDown } from 'lucide-react'
 import type { ChatMessage } from '../../types/chat'
+import { AuthImage } from './AuthImage'
 
 interface Props {
   message: ChatMessage
@@ -68,19 +69,43 @@ export const MessageBubble = memo(function MessageBubble({
 
         {/* Bubble */}
         <div
-          className={`relative px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+          className={`relative rounded-2xl text-sm leading-relaxed break-words overflow-hidden ${
             isOwn
               ? 'bg-blue-500 text-white rounded-br-sm'
               : 'bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700 rounded-bl-sm'
           }`}
         >
-          {message.isEdited && (
-            <Pencil
-              size={9}
-              className={`inline-block mr-1 mb-0.5 ${isOwn ? 'text-blue-200' : 'text-zinc-400'}`}
+          {/* Image attachment */}
+          {message.fileUrl && message.fileType?.startsWith('image') && (
+            <AuthImage
+              src={message.fileUrl}
+              alt="รูปภาพ"
+              className="max-w-[220px] max-h-[280px] w-full object-contain block"
             />
           )}
-          {message.messageText}
+
+          {/* Non-image file attachment */}
+          {message.fileUrl && !message.fileType?.startsWith('image') && (
+            <div className={`flex items-center gap-2 px-3 py-2 text-xs ${isOwn ? 'text-blue-100' : 'text-zinc-500 dark:text-zinc-400'}`}>
+              <FileDown size={13} />
+              <span className="truncate max-w-[160px]">ไฟล์แนบ</span>
+            </div>
+          )}
+
+          {/* Text body */}
+          {message.messageText ? (
+            <div className="px-3 py-2">
+              {message.isEdited && (
+                <Pencil
+                  size={9}
+                  className={`inline-block mr-1 mb-0.5 ${isOwn ? 'text-blue-200' : 'text-zinc-400'}`}
+                />
+              )}
+              {message.messageText}
+            </div>
+          ) : !message.fileUrl && (
+            <div className="px-3 py-2">{' '}</div>
+          )}
         </div>
 
         {/* Timestamp + delivery */}

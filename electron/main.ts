@@ -5,6 +5,7 @@ import {
 import { createRequire } from 'node:module'
 import path   from 'node:path'
 import fs     from 'node:fs'
+import os     from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 // electron-updater is a CommonJS module. Its `autoUpdater` export is defined
@@ -446,6 +447,47 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   try {
     if (Notification.isSupported()) new Notification({ title, body: body ?? '', silent: true }).show()
   } catch (e) { log(`[main] notify:show error: ${e}`) }
+})
+
+// ── Label / document printing ─────────────────────────────────────────────────
+// Writes HTML to a temp file, loads it in a hidden BrowserWindow, then invokes
+// the native OS print dialog via webContents.print(). Avoids the Chromium
+// "This app doesn't support print preview" message that appears with window.open.
+
+ipcMain.handle('print:html', async (_ev, html: string): Promise<{ ok: boolean; error?: string }> => {
+  const tmpFile = path.join(os.tmpdir(), `pe-print-${Date.now()}.html`)
+  try {
+    fs.writeFileSync(tmpFile, html, 'utf8')
+
+    const printWin = new BrowserWindow({
+      width: 420,
+      height: 600,
+      show: false,
+      webPreferences: {
+        nodeIntegration:  false,
+        contextIsolation: true,
+        sandbox:          true,
+      },
+    })
+
+    await printWin.loadFile(tmpFile)
+
+    return await new Promise((resolve) => {
+      printWin.webContents.print(
+        { silent: false, printBackground: true, color: true },
+        (success, failureReason) => {
+          log(`[print] success=${success} reason=${failureReason ?? ''}`)
+          printWin.close()
+          try { fs.unlinkSync(tmpFile) } catch {}
+          resolve(success ? { ok: true } : { ok: false, error: failureReason ?? 'unknown' })
+        },
+      )
+    })
+  } catch (e) {
+    try { fs.unlinkSync(tmpFile) } catch {}
+    log(`[print] error: ${e}`)
+    return { ok: false, error: String(e) }
+  }
 })
 
 // ── Google OAuth — external browser + polling ─────────────────────────────────

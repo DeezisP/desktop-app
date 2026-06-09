@@ -97,21 +97,33 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
 async function captureAndPrint(element: HTMLElement, mode: 'label' | 'bill' = 'label') {
   const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
   const imgData = canvas.toDataURL('image/png');
-  // 375px = ~100mm; compute actual height in mm to match exactly
+  // 375px ≈ 100mm; derive actual height so page size matches exactly — no stretching
   const widthMm = 100;
   const heightMm = Math.round((canvas.height / canvas.width) * widthMm);
-  const win = window.open('', '_blank', `width=${Math.round(canvas.width / 3)},height=${Math.round(canvas.height / 3)}`);
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ'}</title>
+  const title = mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ';
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title}</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#fff; width:${widthMm}mm; }
 img { width:${widthMm}mm; height:${heightMm}mm; display:block; }
 @media print { @page { size:${widthMm}mm ${heightMm}mm; margin:0; } }
 </style></head><body>
-<img src="${imgData}" onload="window.print();window.close();" />
-</body></html>`);
+<img src="${imgData}" />
+</body></html>`;
+
+  // In Electron use IPC → webContents.print() which opens the native OS print
+  // dialog without triggering Chromium's unsupported print-preview page.
+  const api = (window as Window & { electronAPI?: { printHtml?: (h: string) => Promise<{ ok: boolean; error?: string }> } }).electronAPI;
+  if (api?.printHtml) {
+    await api.printHtml(html);
+    return;
+  }
+
+  // Browser fallback
+  const win = window.open('', '_blank', `width=${Math.round(canvas.width / 3)},height=${Math.round(canvas.height / 3)}`);
+  if (!win) return;
+  win.document.write(html.replace('<img src=', '<img onload="window.print();window.close();" src='));
   win.document.close();
 }
 
