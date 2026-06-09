@@ -9,7 +9,6 @@ export function ScanPack() {
   const [scanning, setScanning]   = useState(false)
   const [lastScan, setLastScan]   = useState<ScanQueueResponse | null>(null)
   const [scanError, setScanError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState(false)
 
   const handleScan = useCallback(async (barcode: string) => {
     if (scanning) return
@@ -27,20 +26,6 @@ export function ScanPack() {
       setScanning(false)
     }
   }, [scanning])
-
-  const handleConfirm = useCallback(async () => {
-    if (!lastScan) return
-    setConfirming(true)
-    try {
-      await scanApi.confirmPack(lastScan.id)
-      sounds.confirm()
-      setLastScan(null)
-    } catch {
-      // ignore
-    } finally {
-      setConfirming(false)
-    }
-  }, [lastScan])
 
   return (
     <div className="flex h-full items-start justify-center pt-8">
@@ -87,15 +72,6 @@ export function ScanPack() {
                   ))}
                 </div>
               </div>
-            )}
-            {lastScan.status === 'WAITING' && (
-              <button
-                onClick={handleConfirm}
-                disabled={confirming}
-                className="w-full rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50"
-              >
-                {confirming ? 'Confirming…' : '✓ Confirm Packed'}
-              </button>
             )}
           </div>
         )}
