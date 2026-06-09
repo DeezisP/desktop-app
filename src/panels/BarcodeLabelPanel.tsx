@@ -97,17 +97,17 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
 async function captureAndPrint(element: HTMLElement, mode: 'label' | 'bill' = 'label') {
   const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
   const imgData = canvas.toDataURL('image/png');
-  // 375px ≈ 100mm; derive actual height so page size matches exactly — no stretching
+  // Use width:100mm + height:auto so the browser scales proportionally —
+  // setting an explicit height risks non-uniform scaling that distorts barcodes.
   const widthMm = 100;
-  const heightMm = Math.round((canvas.height / canvas.width) * widthMm);
   const title = mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ';
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title}</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#fff; width:${widthMm}mm; }
-img { width:${widthMm}mm; height:${heightMm}mm; display:block; }
-@media print { @page { size:${widthMm}mm ${heightMm}mm; margin:0; } }
+img { width:${widthMm}mm; height:auto; display:block; }
+@media print { @page { size:${widthMm}mm auto; margin:0; } }
 </style></head><body>
 <img src="${imgData}" />
 </body></html>`;
@@ -496,9 +496,12 @@ export default function BarcodeLabelPanel() {
     try {
       const canvas = await html2canvas(labelRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
       const imgData = canvas.toDataURL('image/png');
-      const [pw, ph] = [100, 150];
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pw, ph] });
-      pdf.addImage(imgData, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+      const pageW = 100;
+      // Compute page height proportionally from the captured canvas so the barcode
+      // is never stretched — same principle as height:auto in CSS.
+      const pageH = (canvas.height / canvas.width) * pageW;
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageW, pageH] });
+      pdf.addImage(imgData, 'PNG', 0, 0, pageW, pageH);
       const name = labelMode === 'bill' ? 'bill' : (recipientName ? recipientName.replace(/\s+/g, '_') : 'label');
       pdf.save(`${name}-${Date.now()}.pdf`);
     } catch (err) { console.error('PDF error:', err); }
