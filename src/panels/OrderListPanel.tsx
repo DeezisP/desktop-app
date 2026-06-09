@@ -54,10 +54,12 @@ const IMPORT_STATUS_META: Record<BackendImportStatus, {
 };
 
 const MATCH_META: Record<BackendMatchConfidence, { dot: string; label: string; text: string }> = {
-  EXACT:     { dot: 'bg-green-500',  label: 'ตรง',       text: 'text-green-600 dark:text-green-400' },
-  CONTAINS:  { dot: 'bg-blue-500',   label: 'ใกล้เคียง', text: 'text-blue-600 dark:text-blue-400' },
-  TOKEN:     { dot: 'bg-amber-500',  label: 'Token',     text: 'text-amber-600 dark:text-amber-400' },
-  UNMATCHED: { dot: 'bg-red-400',    label: 'ไม่พบ',     text: 'text-red-500 dark:text-red-400' },
+  EXACT:     { dot: 'bg-emerald-500', label: 'ตรงทุกอย่าง',  text: 'text-emerald-600 dark:text-emerald-400' },
+  VERY_HIGH: { dot: 'bg-green-500',   label: 'ตรงมาก',       text: 'text-green-600 dark:text-green-400' },
+  HIGH:      { dot: 'bg-teal-500',    label: 'ใกล้เคียง',    text: 'text-teal-600 dark:text-teal-400' },
+  MEDIUM:    { dot: 'bg-amber-500',   label: 'พอใช้',        text: 'text-amber-600 dark:text-amber-400' },
+  LOW:       { dot: 'bg-orange-400',  label: 'ต่ำ',          text: 'text-orange-500 dark:text-orange-400' },
+  UNMATCHED: { dot: 'bg-red-400',     label: 'ไม่พบ',        text: 'text-red-500 dark:text-red-400' },
 };
 
 const PLATFORM_META: Record<string, { bg: string; text: string; border: string; dot: string }> = {

@@ -16,8 +16,10 @@ const COLORS: Record<string, string> = {
 
   // MatchConfidence
   EXACT:     'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30',
-  CONTAINS:  'bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/30',
-  TOKEN:     'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30',
+  VERY_HIGH: 'bg-green-500/15 text-green-400 ring-1 ring-green-500/30',
+  HIGH:      'bg-teal-500/15 text-teal-400 ring-1 ring-teal-500/30',
+  MEDIUM:    'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30',
+  LOW:       'bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30',
   UNMATCHED: 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30',
 }
 
