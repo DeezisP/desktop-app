@@ -2,12 +2,11 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Search, Printer, Plus, Minus, X, Package, Loader2,
-  User, QrCode, Save, Trash2, Truck, FileDown, Clock,
+  User, QrCode, Save, Trash2, Truck, Clock,
   CheckCircle2, AlertCircle, FileText,
 } from 'lucide-react';
 import WarehouseService, { type WarehouseProduct, type OrderImport, type BackendOrder } from '../service/WarehouseService';
 import { encodeCode128B, totalModules } from '../service/code128';
-import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const SENDER_NAME = 'Perfect Electronic';
@@ -38,12 +37,6 @@ interface CapturedLabel {
   imgData: string;   // base64 PNG data URL
   widthMm: number;   // physical width in mm (always PRINT_WIDTH_MM)
   heightMm: number;  // physical height in mm derived from pixel ratio
-}
-
-type ElectronWindow = Window & {
-  electronAPI?: {
-    printHtml?: (html: string) => Promise<{ ok: boolean; error?: string }>
-  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -153,24 +146,6 @@ img { width: ${widthMm}mm; height: ${heightMm}mm; display: block; }
 </style></head><body><img src="${imgData}" /></body></html>`;
 }
 
-// ── PDF builder ───────────────────────────────────────────────────────────────
-//
-// Creates a PDF whose page size exactly matches the captured physical dimensions.
-// addImage receives the same widthMm/heightMm so no scaling occurs inside jsPDF.
-// The image fills the page 1:1 at the correct physical size.
-
-function buildPdfBlob(captured: CapturedLabel): Blob {
-  const { imgData, widthMm, heightMm } = captured;
-  const pdf = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: [widthMm, heightMm],
-    compress: false, // disable recompression — avoids jsPDF DPI re-interpretation
-  });
-  pdf.addImage(imgData, 'PNG', 0, 0, widthMm, heightMm);
-  return pdf.output('blob');
-}
-
 // ── Code 128B barcode ─────────────────────────────────────────────────────────
 
 function Code128SVG({ value, width = 348, height = 60 }: { value: string; width?: number; height?: number }) {
@@ -205,9 +180,8 @@ interface PreviewModalProps {
   onClose: () => void;
 }
 
-function LabelPreviewModal({ captured, filename, onClose }: PreviewModalProps) {
+function LabelPreviewModal({ captured, filename: _filename, onClose }: PreviewModalProps) {
   const [printing, setPrinting] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
 
   // Close on Escape
@@ -222,47 +196,20 @@ function LabelPreviewModal({ captured, filename, onClose }: PreviewModalProps) {
     setPrintError(null);
     try {
       const html = buildPrintHtml(captured);
-      const api = (window as ElectronWindow).electronAPI;
-
-      if (api?.printHtml) {
-        // Electron path — uses webContents.print() via IPC (native OS dialog)
-        const result = await api.printHtml(html);
-        if (!result.ok) setPrintError(result.error ?? 'Print failed');
-      } else {
-        // Browser fallback — open popup and wait for image load before printing
-        const win = window.open('', '_blank', `width=420,height=600`);
-        if (win) {
-          // onload fires after the base64 image is decoded and rendered
-          const printHtml = html.replace(
-            '<img src=',
-            '<img onload="window.focus();setTimeout(function(){window.print();},100);" src='
-          );
-          win.document.write(printHtml);
-          win.document.close();
-          win.focus();
-        }
+      const win = window.open('', '_blank', `width=420,height=600`);
+      if (win) {
+        const printHtml = html.replace(
+          '<img src=',
+          '<img onload="window.focus();setTimeout(function(){window.print();},100);" src='
+        );
+        win.document.write(printHtml);
+        win.document.close();
+        win.focus();
       }
     } catch (e) {
       setPrintError(String(e));
     } finally {
       setPrinting(false);
-    }
-  };
-
-  const handleSavePdf = () => {
-    setSaving(true);
-    try {
-      const blob = buildPdfBlob(captured);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${filename}-${Date.now()}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -324,14 +271,6 @@ function LabelPreviewModal({ captured, filename, onClose }: PreviewModalProps) {
           >
             {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
             พิมพ์
-          </button>
-          <button
-            onClick={handleSavePdf}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 transition-colors"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
-            PDF
           </button>
         </div>
       </div>
@@ -886,14 +825,13 @@ export default function BarcodeLabelPanel() {
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mr-auto">
               {labelMode === 'bill' ? 'บาร์โค้ดบิล' : 'ตัวอย่างป้าย'} — {PRINT_WIDTH_MM}mm × auto
             </h3>
-            {/* Single button — captures then opens preview modal for both Print and PDF */}
             <button
               onClick={openLivePreview}
               disabled={!canGenerate || capturing}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white text-sm font-semibold transition-colors shadow-sm"
             >
               {capturing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
-              {capturing ? 'กำลังเตรียม…' : 'พิมพ์ / PDF'}
+              {capturing ? 'กำลังเตรียม…' : 'พิมพ์'}
             </button>
             <button onClick={saveLabel} disabled={!canGenerate || saving} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 dark:bg-white hover:bg-zinc-700 dark:hover:bg-zinc-100 disabled:opacity-40 text-white dark:text-zinc-900 text-sm font-semibold transition-colors shadow-sm">
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึก
