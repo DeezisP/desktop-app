@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   ArrowDownToLine, Package, ScanBarcode, Boxes,
-  Tag, History, Settings, LogOut, MessageSquare,
+  Tag, History, Settings, LogOut, MessageSquare, Receipt,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useChatStore, selectTotalUnread } from '../store/chatStore'
@@ -27,7 +27,8 @@ function ChatBadge() {
 
 const NAV: NavItem[] = [
   { to: '/',        label: 'นำเข้าออเดอร์', icon: <ArrowDownToLine size={15} />, end: true },
-  { to: '/orders',  label: 'รายการออเดอร์',  icon: <Package size={15} /> },
+  { to: '/orders',      label: 'รายการออเดอร์',  icon: <Package size={15} /> },
+  { to: '/web-orders',  label: 'ออเดอร์เว็บ',    icon: <Receipt size={15} /> },
   { to: '/packing', label: 'สแกนบาร์โค้ด',  icon: <ScanBarcode size={15} /> },
   { to: '/stock',   label: 'สต็อกสินค้า',   icon: <Boxes size={15} /> },
   { to: '/barcode', label: 'ป้ายพัสดุ',     icon: <Tag size={15} /> },

@@ -194,3 +194,51 @@ export const productsApi = {
     await apiClient.delete(`/warehouse/products/${id}`)
   },
 }
+
+// ── Website Store Orders (Perfect ELT e-commerce) ─────────────────────────────
+
+export interface StoreOrderItem {
+  id: number
+  productName: string
+  price: number
+  quantity: number
+  variation?: string
+  variationId?: number
+  productId?: number
+}
+
+export interface StoreOrder {
+  id: number
+  orderKey: string
+  userId: number
+  totalAmount: number
+  taxAmount: number
+  shippingAddress: string
+  vatAddress?: string
+  appliedCoupon?: string
+  status: string
+  currency: string
+  createdAt: string
+  trackingNumber?: string
+  cancelReason?: string
+  items?: StoreOrderItem[]
+}
+
+export const storeOrdersApi = {
+  async getAll(): Promise<StoreOrder[]> {
+    const { data } = await apiClient.get<StoreOrder[]>('/api/admin/orders/all')
+    return data
+  },
+
+  async updateStatus(orderId: number, status: string): Promise<void> {
+    await apiClient.patch(`/api/admin/orders/${orderId}/status`, { status })
+  },
+
+  async deleteOrder(orderId: number): Promise<void> {
+    await apiClient.delete(`/api/admin/orders/${orderId}`)
+  },
+
+  async bulkDelete(orderIds: number[]): Promise<void> {
+    await apiClient.delete('/api/admin/orders/bulk-delete', { data: orderIds })
+  },
+}

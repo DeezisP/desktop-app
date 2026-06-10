@@ -11,6 +11,7 @@ import Chat               from './screens/Chat'
 import { useAppLifecycle } from './hooks/useAppLifecycle'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
+import WebOrdersPanel      from './panels/WebOrdersPanel'
 import PackingPanel        from './panels/PackingPanel'
 import StockListPanel      from './panels/StockListPanel'
 import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
@@ -59,6 +60,7 @@ export default function App() {
           >
             <Route index              element={<ImportPanel />} />
             <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
+            <Route path="web-orders"  element={<Padded><WebOrdersPanel /></Padded>} />
             <Route path="packing"     element={<Padded><PackingPanel /></Padded>} />
             <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
