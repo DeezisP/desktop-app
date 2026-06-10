@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { Mail } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import perfectLogo from '../../resources/perfect-logo.png'
 
@@ -293,8 +294,8 @@ function OtpStep({
       <div className="w-full max-w-sm">
         {/* Header */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-2xl font-bold text-white shadow-lg">
-            ✉
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+            <Mail size={24} />
           </div>
           <h1 className="text-xl font-semibold text-zinc-800 dark:text-zinc-100">ยืนยันอุปกรณ์</h1>
           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500 leading-relaxed">
