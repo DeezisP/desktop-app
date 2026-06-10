@@ -9,6 +9,7 @@ import { StockHistory }   from './screens/StockHistory'
 import Settings           from './screens/Settings'
 import Chat               from './screens/Chat'
 import { useAppLifecycle } from './hooks/useAppLifecycle'
+import { Dashboard }        from './screens/Dashboard'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
 import WebOrdersPanel      from './panels/WebOrdersPanel'
@@ -58,7 +59,9 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index              element={<ImportPanel />} />
+            <Route index              element={<Padded><Dashboard /></Padded>} />
+            <Route path="dashboard"   element={<Padded><Dashboard /></Padded>} />
+            <Route path="import"      element={<ImportPanel />} />
             <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
             <Route path="web-orders"  element={<Padded><WebOrdersPanel /></Padded>} />
             <Route path="packing"     element={<Padded><PackingPanel /></Padded>} />
