@@ -39,6 +39,12 @@ interface CapturedLabel {
   heightMm: number;  // physical height in mm derived from pixel ratio
 }
 
+type ElectronWindow = Window & {
+  electronAPI?: {
+    printHtml?: (html: string) => Promise<{ ok: boolean; error?: string }>
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function p2(n: number) { return String(n).padStart(2, '0'); }
@@ -196,15 +202,26 @@ function LabelPreviewModal({ captured, filename: _filename, onClose }: PreviewMo
     setPrintError(null);
     try {
       const html = buildPrintHtml(captured);
-      const win = window.open('', '_blank', `width=420,height=600`);
-      if (win) {
-        const printHtml = html.replace(
-          '<img src=',
-          '<img onload="window.focus();setTimeout(function(){window.print();},100);" src='
-        );
-        win.document.write(printHtml);
-        win.document.close();
-        win.focus();
+      const api = (window as ElectronWindow).electronAPI;
+
+      if (api?.printHtml) {
+        // Electron: delegate to main process via IPC → native OS print dialog.
+        // window.open() inside Electron triggers the Chromium "This app doesn't
+        // support print preview" error, so we must use this path in-app.
+        const result = await api.printHtml(html);
+        if (!result.ok) setPrintError(result.error ?? 'Print failed');
+      } else {
+        // Browser fallback: open a popup and trigger window.print() after load.
+        const win = window.open('', '_blank', `width=420,height=600`);
+        if (win) {
+          const printHtml = html.replace(
+            '<img src=',
+            '<img onload="window.focus();setTimeout(function(){window.print();},100);" src='
+          );
+          win.document.write(printHtml);
+          win.document.close();
+          win.focus();
+        }
       }
     } catch (e) {
       setPrintError(String(e));

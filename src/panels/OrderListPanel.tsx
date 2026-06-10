@@ -80,7 +80,9 @@ function getPlatformMeta(platform: string | null) {
 
 const PAGE_SIZE = 30;
 
-const TODAY_STR = new Date().toISOString().slice(0, 10);
+// Use local date so Thai users (UTC+7) always see the correct "today".
+const _d = new Date();
+const TODAY_STR = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
 
 function toDateKey(dateStr: string): string {
   return dateStr.slice(0, 10);
@@ -159,8 +161,8 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
   const [matchAnchor, setMatchAnchor]   = useState<{ top: number; left: number } | null>(null);
   const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [queueMap, setQueueMap]         = useState<Map<string, BackendQueueStatus>>(new Map());
-  const [dateFilter, setDateFilter]     = useState<string | null>(TODAY_STR);
-  const [availableDates, setAvailableDates] = useState<string[]>([TODAY_STR]);
+  const [dateFilter, setDateFilter]     = useState<string | null>(null);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   const loadOrders = useCallback(async (
     filter: StatusFilter = statusFilter,
@@ -175,9 +177,14 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
       ]);
       const pg = ordersRes.data.data;
       setOrders(pg.content);
-      const seen = new Set<string>();
-      for (const o of pg.content) seen.add(toDateKey(o.createdAt));
-      setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
+      // Only rebuild the date-chip list when loading without a date filter.
+      // Filtered loads return a subset — overwriting would hide the other chips.
+      if (!date) {
+        const seen = new Set<string>();
+        seen.add(TODAY_STR); // today chip always present
+        for (const o of pg.content) seen.add(toDateKey(o.createdAt));
+        setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
+      }
       const map = new Map<string, BackendQueueStatus>();
       for (const entry of queueRes.data.data.content) {
         if (entry.status === 'WAITING' || entry.status === 'PACKING') {
