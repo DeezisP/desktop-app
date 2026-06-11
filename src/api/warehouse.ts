@@ -241,4 +241,16 @@ export const storeOrdersApi = {
   async bulkDelete(orderIds: number[]): Promise<void> {
     await apiClient.delete('/api/admin/orders/bulk-delete', { data: orderIds })
   },
+
+  async updateTracking(orderId: number, trackingNumber: string): Promise<void> {
+    await apiClient.patch(`/api/admin/orders/${orderId}/tracking`, { trackingNumber })
+  },
+
+  async updateItems(orderId: number, items: StoreOrderItem[]): Promise<void> {
+    await apiClient.put(`/api/admin/orders/${orderId}/items`, items)
+  },
+
+  async cancelOrder(orderId: number, cancelReason: string): Promise<void> {
+    await apiClient.patch(`/api/admin/orders/${orderId}/status`, { status: 'CANCELLED', cancelReason })
+  },
 }

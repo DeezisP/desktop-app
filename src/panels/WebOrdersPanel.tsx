@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Receipt, Search, RefreshCw, Package, Clock,
-  ChevronRight, ChevronDown, PlayCircle, PackageCheck,
-  Truck, CheckSquare, Square, Trash2, AlertTriangle,
+  ChevronRight, PlayCircle, PackageCheck,
+  CheckSquare, Square, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { storeOrdersApi, type StoreOrder } from '../api/warehouse'
 
@@ -36,7 +37,7 @@ const NEXT_ACTION: Record<string, { label: string; status: string; icon: React.R
   PAID:      { label: 'ดำเนินการสั่งซื้อ', status: 'PREPARING', icon: <PlayCircle size={13} />,    color: 'bg-blue-600 hover:bg-blue-700 text-white' },
   PREPARING: { label: 'พร้อมจัดส่งแล้ว',   status: 'SHIPPING',  icon: <PackageCheck size={13} />, color: 'bg-violet-600 hover:bg-violet-700 text-white' },
   SHIPPING:  null,
-  SHIPPED:   null, DELIVERED: null, PENDING: null, EXPIRED: null, CANCELLED: null,
+  SHIPPED: null, DELIVERED: null, PENDING: null, EXPIRED: null, CANCELLED: null,
 }
 
 function getStatusMeta(status: string) {
@@ -102,84 +103,16 @@ function ConfirmModal({ count, onConfirm, onCancel }: { count: number; onConfirm
   )
 }
 
-// ── Expanded Detail ───────────────────────────────────────────────────────────
-
-function OrderDetail({ order }: { order: StoreOrder }) {
-  return (
-    <div className="border-t border-zinc-100 dark:border-zinc-800 px-4 sm:px-6 py-3 space-y-3 bg-zinc-50/50 dark:bg-zinc-800/30">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div>
-          <p className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px] mb-0.5">ที่อยู่จัดส่ง</p>
-          <p className="text-zinc-700 dark:text-zinc-300">{order.shippingAddress || '—'}</p>
-        </div>
-        {order.trackingNumber && (
-          <div>
-            <p className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px] mb-0.5">เลขพัสดุ</p>
-            <p className="font-mono text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
-              <Truck size={11} className="text-zinc-400" /> {order.trackingNumber}
-            </p>
-          </div>
-        )}
-        {order.appliedCoupon && (
-          <div>
-            <p className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px] mb-0.5">คูปอง</p>
-            <p className="font-mono text-zinc-700 dark:text-zinc-300">{order.appliedCoupon}</p>
-          </div>
-        )}
-        {order.taxAmount > 0 && (
-          <div>
-            <p className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px] mb-0.5">ภาษี</p>
-            <p className="text-zinc-700 dark:text-zinc-300">฿{order.taxAmount.toLocaleString()}</p>
-          </div>
-        )}
-        {order.cancelReason && (
-          <div className="sm:col-span-2">
-            <p className="text-zinc-400 font-semibold uppercase tracking-wider text-[10px] mb-0.5">เหตุผลยกเลิก</p>
-            <p className="text-rose-600 dark:text-rose-400">{order.cancelReason}</p>
-          </div>
-        )}
-      </div>
-
-      {order.items && order.items.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-          <table className="w-full text-xs min-w-[360px]">
-            <thead className="bg-zinc-100 dark:bg-zinc-800">
-              <tr>
-                <th className="text-left px-3 py-2 font-semibold text-zinc-400 uppercase tracking-wider">สินค้า</th>
-                <th className="text-left px-3 py-2 font-semibold text-zinc-400 uppercase tracking-wider w-16">จำนวน</th>
-                <th className="text-left px-3 py-2 font-semibold text-zinc-400 uppercase tracking-wider w-24">ราคา</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {order.items.map(item => (
-                <tr key={item.id} className="bg-white dark:bg-zinc-900">
-                  <td className="px-3 py-2">
-                    <p className="text-zinc-800 dark:text-zinc-200 font-medium leading-snug">{item.productName}</p>
-                    {item.variation && <p className="text-zinc-400 text-[10px] mt-0.5">{item.variation}</p>}
-                  </td>
-                  <td className="px-3 py-2 font-bold text-zinc-700 dark:text-zinc-200 tabular-nums">{item.quantity}</td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-600 dark:text-zinc-400">
-                    ฿{(item.price * item.quantity).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function WebOrdersPanel() {
+  const navigate = useNavigate()
+
   const [orders, setOrders]             = useState<StoreOrder[]>([])
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState('')
   const [search, setSearch]             = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('PAID')
-  const [expandedId, setExpandedId]     = useState<number | null>(null)
   const [changingId, setChangingId]     = useState<number | null>(null)
   const [selectedIds, setSelectedIds]   = useState<number[]>([])
   const [showConfirm, setShowConfirm]   = useState(false)
@@ -390,10 +323,9 @@ export default function WebOrdersPanel() {
                 key={order.id}
                 order={order}
                 isChecked={selectedIds.includes(order.id)}
-                isExpanded={expandedId === order.id}
                 isChanging={changingId === order.id}
                 onCheck={e => { e.stopPropagation(); toggleSelect(order.id) }}
-                onToggle={() => setExpandedId(prev => prev === order.id ? null : order.id)}
+                onNavigate={() => navigate(`/web-orders/${order.id}`, { state: { order } })}
                 onAction={handleChangeStatus}
               />
             ))
@@ -441,14 +373,13 @@ export default function WebOrdersPanel() {
 // ── OrderRow ──────────────────────────────────────────────────────────────────
 
 function OrderRow({
-  order, isChecked, isExpanded, isChanging, onCheck, onToggle, onAction,
+  order, isChecked, isChanging, onCheck, onNavigate, onAction,
 }: {
   order: StoreOrder
   isChecked: boolean
-  isExpanded: boolean
   isChanging: boolean
   onCheck: (e: React.MouseEvent) => void
-  onToggle: () => void
+  onNavigate: () => void
   onAction: (orderId: number, newStatus: string) => void
 }) {
   const action  = NEXT_ACTION[order.status?.toUpperCase()] ?? null
@@ -457,10 +388,8 @@ function OrderRow({
 
   return (
     <div className="border-b border-slate-50 dark:border-zinc-800 last:border-0 bg-white dark:bg-zinc-900">
-
-      {/* ── Row ── */}
       <div
-        onClick={onToggle}
+        onClick={onNavigate}
         className="group flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/70 transition-colors"
       >
         <button onClick={onCheck} className="text-slate-300 dark:text-zinc-600 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors flex-shrink-0">
@@ -482,7 +411,7 @@ function OrderRow({
                   {action.label}
                 </button>
               )}
-              {isExpanded ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-300 dark:text-zinc-600" />}
+              <ChevronRight size={14} className="text-slate-300 dark:text-zinc-600" />
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -537,16 +466,10 @@ function OrderRow({
                 {action.label}
               </button>
             )}
-            {isExpanded
-              ? <ChevronDown size={14} className="text-slate-400 dark:text-zinc-400 transition-colors" />
-              : <ChevronRight size={14} className="text-slate-300 dark:text-zinc-600 group-hover:text-slate-400 dark:group-hover:text-zinc-400 transition-colors" />
-            }
+            <ChevronRight size={14} className="text-slate-300 dark:text-zinc-600 group-hover:text-slate-400 dark:group-hover:text-zinc-400 transition-colors" />
           </div>
         </div>
       </div>
-
-      {/* ── Expanded detail ── */}
-      {isExpanded && <OrderDetail order={order} />}
     </div>
   )
 }

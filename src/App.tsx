@@ -13,6 +13,7 @@ import { Dashboard }        from './screens/Dashboard'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
 import WebOrdersPanel      from './panels/WebOrdersPanel'
+import WebOrderDetailPanel from './panels/WebOrderDetailPanel'
 import PackingPanel        from './panels/PackingPanel'
 import StockListPanel      from './panels/StockListPanel'
 import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="import"      element={<ImportPanel />} />
             <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
             <Route path="web-orders"  element={<WebOrdersPanel />} />
+            <Route path="web-orders/:id" element={<WebOrderDetailPanel />} />
             <Route path="packing"     element={<Padded><PackingPanel /></Padded>} />
             <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />

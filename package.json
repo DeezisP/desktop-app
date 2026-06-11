@@ -2,7 +2,7 @@
   "name": "perfect-electronic-warehouse",
   "private": true,
   "type": "module",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Perfect Electronic Warehouse Application",
   "author": "Perfect Electronic",
   "main": "dist-electron/main.js",
