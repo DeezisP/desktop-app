@@ -74,6 +74,25 @@ export default defineConfig({
           },
         },
       },
+
+      // ── Badge window preload ──────────────────────────────────────────────
+      {
+        entry: 'electron/badge-preload.ts',
+        onstart(options) {
+          options.reload()
+        },
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: ['electron'],
+              output: {
+                entryFileNames: '[name].mjs',
+              },
+            },
+          },
+        },
+      },
     ]),
 
     renderer(),

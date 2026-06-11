@@ -41,6 +41,10 @@ export type ElectronAPI = {
    * Returns an unsubscribe function.
    */
   onUpdateStatus:  (cb: (status: UpdateStatus) => void) => () => void
+
+  // ── Chat badge (LINE-style overlay when app is not focused) ───────────────
+  /** Update the chat unread badge count. Shows/hides the overlay badge window. */
+  updateBadge: (count: number) => Promise<void>
 }
 
 const api: ElectronAPI = {
@@ -78,6 +82,9 @@ const api: ElectronAPI = {
     // Return an unsubscribe function so the caller can clean up
     return () => ipcRenderer.removeListener('update:status', listener)
   },
+
+  // ── Chat badge ─────────────────────────────────────────────────────────────
+  updateBadge: (count) => ipcRenderer.invoke('badge:update', count),
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

@@ -9,6 +9,7 @@ import { UpdateNotification } from './UpdateNotification'
 import { useStomp } from '../hooks/useStomp'
 import { useSettingsStore } from '../store/settingsStore'
 import { useAuth } from '../hooks/useAuth'
+import { useChatBadge } from '../hooks/useChatBadge'
 
 const PAGE_TITLES: Record<string, string> = {
   '/':           'ภาพรวม',
@@ -138,6 +139,7 @@ export function Layout() {
   const { isConnected } = useStomp()
   const location = useLocation()
   const pageTitle = PAGE_TITLES[location.pathname] ?? ''
+  useChatBadge()
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">

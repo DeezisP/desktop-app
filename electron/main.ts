@@ -27,8 +27,10 @@ const PRODUCTION_ORIGIN   = 'https://perfectelt.com'
 
 const tokenStore = new Map<string, Buffer>()
 let mainWindow:    BrowserWindow | null = null
+let badgeWindow:   BrowserWindow | null = null
 let logPath:       string | null = null
 let tokenFilePath: string | null = null
+let badgeCount:    number = 0
 
 // ── Token persistence (survives app restarts) ─────────────────────────────────
 // Buffers are stored as base64 in a 0600 JSON file inside userData.
@@ -97,6 +99,131 @@ function log(msg: string) {
   process.stdout.write(line)
   if (logPath) {
     try { fs.appendFileSync(logPath, line) } catch {}
+  }
+}
+
+// ── LINE-style chat badge overlay ─────────────────────────────────────────────
+// A small always-on-top frameless window that appears in the bottom-right
+// corner of the screen when new chat messages arrive and the app is not focused.
+// Clicking it brings the main window to the front and hides the badge.
+
+function createBadgeWindow() {
+  if (badgeWindow && !badgeWindow.isDestroyed()) return
+
+  const badgePreloadPath = path.join(__dirname, 'badge-preload.mjs')
+  const { width: sw, height: sh } = require('electron').screen.getPrimaryDisplay().workAreaSize
+
+  const WIN_SIZE = 90
+
+  badgeWindow = new BrowserWindow({
+    width:           WIN_SIZE,
+    height:          WIN_SIZE,
+    x:               sw - WIN_SIZE - 16,
+    y:               sh - WIN_SIZE - 16,
+    frame:           false,
+    transparent:     true,
+    alwaysOnTop:     true,
+    skipTaskbar:     true,
+    resizable:       false,
+    movable:         false,
+    minimizable:     false,
+    maximizable:     false,
+    closable:        false,
+    focusable:       false,
+    show:            false,
+    hasShadow:       false,
+    webPreferences: {
+      preload:          badgePreloadPath,
+      contextIsolation: true,
+      nodeIntegration:  false,
+      sandbox:          false,
+    },
+  })
+
+  badgeWindow.setAlwaysOnTop(true, 'screen-saver')
+  badgeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  const badgePath = VITE_DEV_SERVER_URL
+    ? `${VITE_DEV_SERVER_URL}badge.html`
+    : path.join(__dirname, '../dist/badge.html')
+
+  if (VITE_DEV_SERVER_URL) {
+    badgeWindow.loadURL(badgePath)
+  } else {
+    badgeWindow.loadFile(badgePath)
+  }
+
+  badgeWindow.on('closed', () => { badgeWindow = null })
+  log('[badge] window created')
+}
+
+function showBadge(count: number) {
+  if (!badgeWindow || badgeWindow.isDestroyed()) {
+    createBadgeWindow()
+  }
+  badgeWindow?.webContents.send('badge:count', count)
+  if (!badgeWindow?.isVisible()) {
+    badgeWindow?.showInactive()
+    log(`[badge] shown count=${count}`)
+  }
+}
+
+function hideBadge() {
+  if (badgeWindow && !badgeWindow.isDestroyed() && badgeWindow.isVisible()) {
+    badgeWindow.hide()
+    log('[badge] hidden')
+  }
+}
+
+function updateBadgeState(count: number) {
+  badgeCount = count
+
+  // Windows taskbar overlay icon badge
+  if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
+    if (count > 0) {
+      try {
+        const { nativeImage } = require('electron')
+        // Draw a red circle with count number as a 16×16 canvas
+        const size = 16
+        const canvas = Buffer.alloc(size * size * 4)
+        // Simple red circle: fill with #ef4444 (rgba 239,68,68)
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const cx = x - size / 2 + 0.5
+            const cy = y - size / 2 + 0.5
+            const idx = (y * size + x) * 4
+            if (cx * cx + cy * cy <= (size / 2) * (size / 2)) {
+              canvas[idx]     = 239  // R
+              canvas[idx + 1] = 68   // G
+              canvas[idx + 2] = 68   // B
+              canvas[idx + 3] = 255  // A
+            }
+          }
+        }
+        const overlay = nativeImage.createFromBuffer(canvas, { width: size, height: size })
+        const label = count > 99 ? '99+' : String(count)
+        mainWindow.setOverlayIcon(overlay, `${label} ข้อความใหม่`)
+      } catch (e) {
+        log(`[badge] setOverlayIcon error: ${e}`)
+      }
+    } else {
+      try {
+        const { nativeImage } = require('electron')
+        mainWindow.setOverlayIcon(nativeImage.createEmpty(), '')
+      } catch {}
+    }
+  }
+
+  // macOS / Linux dock badge
+  if (process.platform !== 'win32') {
+    try { app.setBadgeCount(count) } catch {}
+  }
+
+  const focused = mainWindow ? mainWindow.isFocused() : false
+  if (count > 0 && !focused) {
+    showBadge(count)
+  } else {
+    hideBadge()
   }
 }
 
@@ -404,6 +531,19 @@ function createWindow() {
     log(`[renderer][${lvl}] ${message}  (${source}:${line})`)
   })
 
+  mainWindow.on('focus', () => {
+    hideBadge()
+    // Clear taskbar/dock badge on focus
+    if (process.platform === 'win32') {
+      try {
+        const { nativeImage } = require('electron')
+        mainWindow?.setOverlayIcon(nativeImage.createEmpty(), '')
+      } catch {}
+    } else {
+      try { app.setBadgeCount(0) } catch {}
+    }
+  })
+
   mainWindow.on('closed', () => { mainWindow = null })
 
   // CORS: spoof Origin so backend CORS allows file:// requests.
@@ -503,6 +643,23 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   try {
     if (Notification.isSupported()) new Notification({ title, body: body ?? '', silent: true }).show()
   } catch (e) { log(`[main] notify:show error: ${e}`) }
+})
+
+// ── Chat badge IPC ────────────────────────────────────────────────────────────
+
+ipcMain.handle('badge:update', (_ev, count: number): void => {
+  updateBadgeState(count)
+})
+
+// Badge window sends this when the user clicks it
+ipcMain.on('badge:click', () => {
+  log('[badge] clicked — focusing main window')
+  hideBadge()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
 })
 
 // ── Save dialog + file write (album downloads) ────────────────────────────────
