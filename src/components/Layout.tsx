@@ -1,4 +1,4 @@
-import { Outlet, useLocation, NavLink } from 'react-router-dom'
+import { Outlet, useLocation, NavLink, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useState, useRef, useEffect } from 'react'
 import { LogOut, ChevronDown } from 'lucide-react'
@@ -10,6 +10,8 @@ import { useStomp } from '../hooks/useStomp'
 import { useSettingsStore } from '../store/settingsStore'
 import { useAuth } from '../hooks/useAuth'
 import { useChatBadge } from '../hooks/useChatBadge'
+import { useChatToast } from '../hooks/useChatToast'
+import { useChatStore } from '../store/chatStore'
 
 const PAGE_TITLES: Record<string, string> = {
   '/':           'ภาพรวม',
@@ -137,9 +139,25 @@ function UserMenu() {
 
 export function Layout() {
   const { isConnected } = useStomp()
-  const location = useLocation()
+  const location  = useLocation()
+  const navigate  = useNavigate()
   const pageTitle = PAGE_TITLES[location.pathname] ?? ''
+  const setActiveRoom = useChatStore((s) => s.setActiveRoom)
+
   useChatBadge()
+  useChatToast()
+
+  // When user clicks a toast the main process sends 'navigate:room' so the
+  // renderer can open the correct conversation.
+  useEffect(() => {
+    const api = (window as Window & { electronAPI?: { onNavigateToRoom?: (cb: (id: number) => void) => () => void } }).electronAPI
+    if (!api?.onNavigateToRoom) return
+    const unsub = api.onNavigateToRoom((roomId) => {
+      setActiveRoom(roomId)
+      navigate('/chat')
+    })
+    return unsub
+  }, [setActiveRoom, navigate])
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">

@@ -75,9 +75,9 @@ export default defineConfig({
         },
       },
 
-      // ── Badge window preload ──────────────────────────────────────────────
+      // ── Toast window preload ──────────────────────────────────────────────
       {
-        entry: 'electron/badge-preload.ts',
+        entry: 'electron/toast-preload.ts',
         onstart(options) {
           options.reload()
         },

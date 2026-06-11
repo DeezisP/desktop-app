@@ -27,12 +27,27 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const PRODUCTION_ORIGIN   = 'https://perfectelt.com'
 
 const tokenStore = new Map<string, Buffer>()
-let mainWindow:       BrowserWindow | null = null
-let badgeWindow:      BrowserWindow | null = null
-let badgeWindowReady: boolean = false   // true after badge.html fires did-finish-load
-let badgeCount:       number  = 0       // latest unread count; persisted across show/hide
-let logPath:          string | null = null
-let tokenFilePath:    string | null = null
+let mainWindow:  BrowserWindow | null = null
+let badgeCount:  number  = 0       // unread count for taskbar / dock badge
+let logPath:     string | null = null
+let tokenFilePath: string | null = null
+
+// ── Chat toast payload ────────────────────────────────────────────────────────
+export type ChatToastPayload = {
+  roomId:         number
+  senderName:     string
+  senderInitials: string
+  messagePreview: string
+  unreadCount:    number
+  avatarColor:    string
+}
+
+// ── Toast window state ────────────────────────────────────────────────────────
+let toastWindow:      BrowserWindow | null = null
+let toastWindowReady: boolean = false
+let toastBusy:        boolean = false
+const toastQueue:     ChatToastPayload[] = []
+const TOAST_MAX_QUEUE = 5
 
 // ── Token persistence (survives app restarts) ─────────────────────────────────
 // Buffers are stored as base64 in a 0600 JSON file inside userData.
@@ -104,154 +119,12 @@ function log(msg: string) {
   }
 }
 
-// ── LINE-style chat badge overlay ─────────────────────────────────────────────
-// A small always-on-top frameless window that appears in the bottom-right
-// corner of the screen when new chat messages arrive and the app is not focused.
-// Clicking it brings the main window to the front and hides the badge.
-//
-// Architecture notes:
-//  • screen / nativeImage are imported at the top via ESM — never use require()
-//  • badgeWindowReady gates all webContents.send calls to avoid the race where
-//    the main process tries to push IPC before badge.html has finished loading
-//  • The badge window is pre-created at startup (hidden) so it is always ready
-//  • On main-window blur we re-evaluate the badge state because the unread count
-//    may not have changed (so useChatBadge wouldn't fire), but focus just changed
-
-function getBadgePosition(): { x: number; y: number } {
-  const WIN_SIZE = 90
-  let disp: Electron.Display
-  try {
-    disp = mainWindow && !mainWindow.isDestroyed()
-      ? screen.getDisplayMatching(mainWindow.getBounds())
-      : screen.getPrimaryDisplay()
-  } catch {
-    disp = screen.getPrimaryDisplay()
-  }
-  const { x: dx, y: dy, width: dw, height: dh } = disp.workArea
-  return { x: dx + dw - WIN_SIZE - 16, y: dy + dh - WIN_SIZE - 16 }
-}
-
-function createBadgeWindow(): void {
-  if (badgeWindow && !badgeWindow.isDestroyed()) {
-    log('[badge] createBadgeWindow: already exists — skipping')
-    return
-  }
-
-  const badgePreloadPath = path.join(__dirname, 'badge-preload.mjs')
-  const badgePreloadExists = fs.existsSync(badgePreloadPath)
-  log(`[badge] creating window — preload=${badgePreloadPath} exists=${badgePreloadExists}`)
-
-  const { x, y } = getBadgePosition()
-  const WIN_SIZE  = 90
-
-  badgeWindowReady = false
-
-  badgeWindow = new BrowserWindow({
-    width:           WIN_SIZE,
-    height:          WIN_SIZE,
-    x,
-    y,
-    frame:           false,
-    transparent:     true,
-    backgroundColor: '#00000000',  // required on Windows for true transparency
-    alwaysOnTop:     true,
-    skipTaskbar:     true,
-    resizable:       false,
-    movable:         false,
-    minimizable:     false,
-    maximizable:     false,
-    closable:        false,
-    focusable:       false,        // prevent badge from stealing keyboard focus
-    show:            false,
-    hasShadow:       false,
-    webPreferences: {
-      preload:          badgePreloadPath,
-      contextIsolation: true,
-      nodeIntegration:  false,
-      sandbox:          false,
-    },
-  })
-
-  badgeWindow.setAlwaysOnTop(true, 'screen-saver')
-  try { badgeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
-
-  // ── Race-condition fix: only show/send after page has fully loaded ───────────
-  badgeWindow.webContents.once('did-finish-load', () => {
-    badgeWindowReady = true
-    log('[badge] did-finish-load — renderer ready')
-    // Re-evaluate now that the renderer can receive IPC
-    const focused = mainWindow ? mainWindow.isFocused() : false
-    log(`[badge] on-ready reapply: count=${badgeCount} focused=${focused}`)
-    if (badgeCount > 0 && !focused) {
-      _showBadge(badgeCount)
-    }
-  })
-
-  badgeWindow.webContents.on('did-fail-load', (_ev, code, desc) => {
-    log(`[badge] did-fail-load code=${code} desc="${desc}"`)
-    badgeWindowReady = false
-  })
-
-  // Forward badge renderer console to the main log
-  badgeWindow.webContents.on('console-message', (_ev, level, message) => {
-    const lvl = ['verbose', 'info', 'warning', 'error'][level] ?? `level${level}`
-    log(`[badge-renderer][${lvl}] ${message}`)
-  })
-
-  badgeWindow.on('closed', () => {
-    badgeWindow      = null
-    badgeWindowReady = false
-    log('[badge] window closed/destroyed')
-  })
-
-  const badgeSrc = VITE_DEV_SERVER_URL
-    ? `${VITE_DEV_SERVER_URL}badge.html`
-    : path.join(__dirname, '../dist/badge.html')
-
-  if (!VITE_DEV_SERVER_URL) {
-    log(`[badge] html path=${badgeSrc} exists=${fs.existsSync(badgeSrc)}`)
-  }
-
-  if (VITE_DEV_SERVER_URL) {
-    badgeWindow.loadURL(badgeSrc).catch((e) => log(`[badge] loadURL error: ${e}`))
-  } else {
-    badgeWindow.loadFile(badgeSrc).catch((e) => log(`[badge] loadFile error: ${e}`))
-  }
-
-  log('[badge] window created, waiting for did-finish-load')
-}
-
-function _showBadge(count: number): void {
-  if (!badgeWindowReady || !badgeWindow || badgeWindow.isDestroyed()) {
-    // createBadgeWindow was already called; did-finish-load will call updateBadgeState again
-    log(`[badge] _showBadge skip: ready=${badgeWindowReady} exists=${!!badgeWindow}`)
-    return
-  }
-  const { x, y } = getBadgePosition()
-  badgeWindow.setPosition(x, y)
-  badgeWindow.webContents.send('badge:count', count)
-  if (!badgeWindow.isVisible()) {
-    badgeWindow.showInactive()
-    log(`[badge] shown count=${count} pos=(${x},${y})`)
-  } else {
-    log(`[badge] count updated → ${count}`)
-  }
-}
-
-function _hideBadge(): void {
-  if (badgeWindow && !badgeWindow.isDestroyed() && badgeWindow.isVisible()) {
-    badgeWindow.hide()
-    log('[badge] hidden')
-  }
-}
+// ── Taskbar / dock badge ──────────────────────────────────────────────────────
 
 function updateBadgeState(count: number): void {
-  const prev = badgeCount
-  badgeCount  = count
-  const focused = mainWindow ? mainWindow.isFocused() : false
-  log(`[badge] updateBadgeState count=${count} (prev=${prev}) focused=${focused} ready=${badgeWindowReady}`)
+  badgeCount = count
 
-  // ── Windows taskbar overlay icon (red circle with count) ────────────────────
+  // ── Windows taskbar overlay icon (red circle with count) ───────────────────
   if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
     try {
       if (count > 0) {
@@ -270,23 +143,145 @@ function updateBadgeState(count: number): void {
         const img   = nativeImage.createFromBuffer(buf, { width: size, height: size })
         const label = count > 99 ? '99+' : String(count)
         mainWindow.setOverlayIcon(img, `${label} ข้อความใหม่`)
+        log(`[badge] setOverlayIcon count=${count}`)
       } else {
         mainWindow.setOverlayIcon(nativeImage.createEmpty(), '')
+        log('[badge] overlay icon cleared')
       }
     } catch (e) { log(`[badge] setOverlayIcon error: ${e}`) }
   }
 
-  // ── macOS / Linux dock badge ────────────────────────────────────────────────
+  // ── macOS / Linux dock badge ───────────────────────────────────────────────
   if (process.platform !== 'win32') {
     try { app.setBadgeCount(count) } catch {}
   }
+}
 
-  // ── Floating overlay badge ──────────────────────────────────────────────────
-  if (count > 0 && !focused) {
-    _showBadge(count)
-  } else {
-    _hideBadge()
+// ── Toast notification window ─────────────────────────────────────────────────
+// Temporary overlay that slides in from the bottom-right when a new message
+// arrives and the app is not focused (LINE / Telegram / Slack style).
+// Each toast stays 4 s then slides out. Multiple messages are queued.
+
+function getToastPosition(): { x: number; y: number } {
+  const W = 380, H = 88
+  let disp: Electron.Display
+  try {
+    disp = mainWindow && !mainWindow.isDestroyed()
+      ? screen.getDisplayMatching(mainWindow.getBounds())
+      : screen.getPrimaryDisplay()
+  } catch {
+    disp = screen.getPrimaryDisplay()
   }
+  const { x: dx, y: dy, width: dw, height: dh } = disp.workArea
+  return { x: dx + dw - W - 16, y: dy + dh - H - 16 }
+}
+
+function createToastWindow(): void {
+  if (toastWindow && !toastWindow.isDestroyed()) return
+
+  const preloadPath = path.join(__dirname, 'toast-preload.mjs')
+  log(`[toast] creating window — preload=${preloadPath} exists=${fs.existsSync(preloadPath)}`)
+
+  const { x, y } = getToastPosition()
+  toastWindowReady = false
+
+  toastWindow = new BrowserWindow({
+    width:           380,
+    height:          88,
+    x, y,
+    frame:           false,
+    transparent:     true,
+    backgroundColor: '#00000000',
+    alwaysOnTop:     true,
+    skipTaskbar:     true,
+    resizable:       false,
+    movable:         false,
+    minimizable:     false,
+    maximizable:     false,
+    closable:        false,
+    focusable:       false,
+    show:            false,
+    hasShadow:       false,
+    webPreferences: {
+      preload:          preloadPath,
+      contextIsolation: true,
+      nodeIntegration:  false,
+      sandbox:          false,
+    },
+  })
+
+  toastWindow.setAlwaysOnTop(true, 'screen-saver')
+  try { toastWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
+
+  toastWindow.webContents.once('did-finish-load', () => {
+    toastWindowReady = true
+    log('[toast] did-finish-load — renderer ready')
+    _showNextToast()
+  })
+
+  toastWindow.webContents.on('did-fail-load', (_ev, code, desc) => {
+    log(`[toast] did-fail-load code=${code} desc="${desc}"`)
+    toastWindowReady = false
+  })
+
+  toastWindow.webContents.on('console-message', (_ev, level, message) => {
+    const lvl = ['verbose', 'info', 'warning', 'error'][level] ?? `level${level}`
+    log(`[toast-renderer][${lvl}] ${message}`)
+  })
+
+  toastWindow.on('closed', () => {
+    toastWindow      = null
+    toastWindowReady = false
+    toastBusy        = false
+    log('[toast] window closed/destroyed')
+  })
+
+  const src = VITE_DEV_SERVER_URL
+    ? `${VITE_DEV_SERVER_URL}toast.html`
+    : path.join(__dirname, '../dist/toast.html')
+
+  if (!VITE_DEV_SERVER_URL) log(`[toast] html=${src} exists=${fs.existsSync(src)}`)
+
+  if (VITE_DEV_SERVER_URL) {
+    toastWindow.loadURL(src).catch((e) => log(`[toast] loadURL error: ${e}`))
+  } else {
+    toastWindow.loadFile(src).catch((e) => log(`[toast] loadFile error: ${e}`))
+  }
+
+  log('[toast] window created, waiting for did-finish-load')
+}
+
+function _showNextToast(): void {
+  if (toastBusy || toastQueue.length === 0) return
+  if (!toastWindowReady || !toastWindow || toastWindow.isDestroyed()) {
+    log('[toast] window not ready — will show when ready')
+    return
+  }
+  toastBusy = true
+  const payload = toastQueue.shift()!
+  const { x, y } = getToastPosition()
+  toastWindow.setPosition(x, y)
+  toastWindow.webContents.send('toast:show', payload)
+  if (!toastWindow.isVisible()) toastWindow.showInactive()
+  log(`[toast] shown room=${payload.roomId} sender="${payload.senderName}" remaining=${toastQueue.length}`)
+}
+
+function queueToast(payload: ChatToastPayload): void {
+  if (toastBusy && toastQueue.length > 0) {
+    const last = toastQueue[toastQueue.length - 1]
+    if (last.roomId === payload.roomId && last.senderName === payload.senderName) {
+      toastQueue[toastQueue.length - 1] = payload
+      log(`[toast] coalesced room=${payload.roomId}`)
+      return
+    }
+  }
+  if (toastQueue.length >= TOAST_MAX_QUEUE) {
+    toastQueue.shift()
+    log('[toast] queue full — dropped oldest')
+  }
+  toastQueue.push(payload)
+  log(`[toast] queued room=${payload.roomId} queueLen=${toastQueue.length} busy=${toastBusy}`)
+  _showNextToast()
 }
 
 // ── Global main-process error handlers ───────────────────────────────────────
@@ -593,10 +588,9 @@ function createWindow() {
     log(`[renderer][${lvl}] ${message}  (${source}:${line})`)
   })
 
-  // Hide badge and clear taskbar/dock badge when the app gains focus
+  // Clear taskbar/dock badge when the app gains focus
   mainWindow.on('focus', () => {
-    log(`[badge] main-window focus — hiding badge, count was ${badgeCount}`)
-    _hideBadge()
+    log('[badge] main-window focus — clearing badge')
     if (process.platform === 'win32') {
       try { mainWindow?.setOverlayIcon(nativeImage.createEmpty(), '') } catch {}
     } else {
@@ -604,20 +598,13 @@ function createWindow() {
     }
   })
 
-  // Re-evaluate badge when the app loses focus — unread count may not have changed
-  // so useChatBadge wouldn't fire; we need to show the badge here if count > 0
-  mainWindow.on('blur', () => {
-    log(`[badge] main-window blur — reapplying badge state count=${badgeCount}`)
-    updateBadgeState(badgeCount)
-  })
-
-  // Destroy the badge window together with the main window so that
+  // Destroy the toast window together with the main window so that
   // window-all-closed fires correctly on Windows/Linux (hidden windows
   // still count toward getAllWindows(), so the app would stay alive otherwise)
   mainWindow.on('closed', () => {
     mainWindow = null
-    if (badgeWindow && !badgeWindow.isDestroyed()) {
-      badgeWindow.destroy()
+    if (toastWindow && !toastWindow.isDestroyed()) {
+      toastWindow.destroy()
     }
   })
 
@@ -726,14 +713,31 @@ ipcMain.handle('badge:update', (_ev, count: number): void => {
   updateBadgeState(count)
 })
 
-// Badge window sends this when the user clicks it
-ipcMain.on('badge:click', () => {
-  log('[badge] clicked — focusing main window')
-  _hideBadge()
+// ── Chat toast IPC ────────────────────────────────────────────────────────────
+
+ipcMain.handle('chat:toast', (_ev, payload: ChatToastPayload): void => {
+  log(`[toast] IPC chat:toast room=${payload?.roomId} sender="${payload?.senderName}"`)
+  queueToast(payload)
+})
+
+ipcMain.on('toast:done', () => {
+  toastBusy = false
+  if (toastWindow && !toastWindow.isDestroyed() && toastWindow.isVisible()) {
+    toastWindow.hide()
+  }
+  log('[toast] done — hidden, scheduling next')
+  setTimeout(_showNextToast, 250)
+})
+
+ipcMain.on('toast:click', (_ev, roomId: number) => {
+  log(`[toast] clicked room=${roomId} — focusing main window`)
+  toastBusy = false
+  if (toastWindow && !toastWindow.isDestroyed()) toastWindow.hide()
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
     mainWindow.focus()
+    mainWindow.webContents.send('navigate:room', roomId)
   }
 })
 
@@ -1061,9 +1065,9 @@ app.whenReady().then(() => {
   setupAutoUpdater()
   buildMenu()
   createWindow()
-  // Pre-create the badge window while the app is starting so it is fully loaded
-  // and ready before the first badge:update IPC arrives from the renderer.
-  createBadgeWindow()
+  // Pre-create the toast window while the app is starting so it is fully loaded
+  // before the first notification arrives.
+  createToastWindow()
 }).catch((err) => {
   log(`[main] app.whenReady failed: ${err?.message}\n${err?.stack ?? ''}`)
 })
@@ -1073,12 +1077,12 @@ app.on('window-all-closed', () => {
 })
 
 // On macOS: reopen the main window when the dock icon is clicked.
-// Do NOT use getAllWindows().length === 0 — the hidden badge window keeps the
+// Do NOT use getAllWindows().length === 0 — the hidden toast window keeps the
 // count > 0 even when the main window is closed, breaking this check.
 app.on('activate', () => {
   if (!mainWindow) {
     createWindow()
-    createBadgeWindow()
+    createToastWindow()
   }
 })
 

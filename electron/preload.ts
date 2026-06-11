@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { UpdateStatus, GoogleLoginResult } from './main'
+import type { UpdateStatus, GoogleLoginResult, ChatToastPayload } from './main'
 
 export type ElectronAPI = {
   saveToken:   (key: string, value: string)  => Promise<boolean>
@@ -42,9 +42,18 @@ export type ElectronAPI = {
    */
   onUpdateStatus:  (cb: (status: UpdateStatus) => void) => () => void
 
-  // ── Chat badge (LINE-style overlay when app is not focused) ───────────────
-  /** Update the chat unread badge count. Shows/hides the overlay badge window. */
+  /** Update the chat unread badge count (taskbar / dock badge). */
   updateBadge: (count: number) => Promise<void>
+
+  // ── Chat toast notifications ───────────────────────────────────────────────
+  /** Enqueue a toast notification for an incoming chat message. */
+  showChatToast: (payload: ChatToastPayload) => Promise<void>
+  /**
+   * Register a callback that fires when the user clicks a toast and the main
+   * process wants the renderer to navigate to the given room.
+   * Returns an unsubscribe function.
+   */
+  onNavigateToRoom: (cb: (roomId: number) => void) => () => void
 }
 
 const api: ElectronAPI = {
@@ -83,8 +92,16 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener('update:status', listener)
   },
 
-  // ── Chat badge ─────────────────────────────────────────────────────────────
   updateBadge: (count) => ipcRenderer.invoke('badge:update', count),
+
+  // ── Chat toast ─────────────────────────────────────────────────────────────
+  showChatToast: (payload) => ipcRenderer.invoke('chat:toast', payload),
+
+  onNavigateToRoom: (cb) => {
+    const listener = (_event: Electron.IpcRendererEvent, roomId: number) => cb(roomId)
+    ipcRenderer.on('navigate:room', listener)
+    return () => ipcRenderer.removeListener('navigate:room', listener)
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
