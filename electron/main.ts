@@ -43,11 +43,14 @@ export type ChatToastPayload = {
 }
 
 // ── Toast window state ────────────────────────────────────────────────────────
+// Single managed window. Every new message updates the toast IMMEDIATELY —
+// no queue, no waiting for previous timeout. The renderer restarts its own
+// timer on each toast:show so latest message always wins.
 let toastWindow:      BrowserWindow | null = null
 let toastWindowReady: boolean = false
-let toastBusy:        boolean = false
-const toastQueue:     ChatToastPayload[] = []
-const TOAST_MAX_QUEUE = 5
+let pendingToast:     ChatToastPayload | null = null  // stored while window loads
+let toastRoomId:      number | null = null            // room currently displayed
+let toastRoomCount:   number = 0                     // rapid-message counter
 
 // ── Token persistence (survives app restarts) ─────────────────────────────────
 // Buffers are stored as base64 in a 0600 JSON file inside userData.
@@ -124,19 +127,20 @@ function log(msg: string) {
 function updateBadgeState(count: number): void {
   badgeCount = count
 
-  // ── Windows taskbar overlay icon (red circle with count) ───────────────────
+  // ── Windows taskbar overlay icon — orange, ~65% of original size ─────────────
   if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
     try {
       if (count > 0) {
-        const size = 16
-        const buf  = Buffer.alloc(size * size * 4)
+        const size   = 16
+        const radius = 5.2   // 5.2 / 8.0 ≈ 65 % — smaller, cleaner badge
+        const buf    = Buffer.alloc(size * size * 4)
         for (let py = 0; py < size; py++) {
           for (let px = 0; px < size; px++) {
             const cx  = px - size / 2 + 0.5
             const cy  = py - size / 2 + 0.5
             const idx = (py * size + px) * 4
-            if (cx * cx + cy * cy <= (size / 2) * (size / 2)) {
-              buf[idx] = 239; buf[idx+1] = 68; buf[idx+2] = 68; buf[idx+3] = 255
+            if (cx * cx + cy * cy <= radius * radius) {
+              buf[idx] = 255; buf[idx+1] = 149; buf[idx+2] = 0; buf[idx+3] = 255  // #FF9500
             }
           }
         }
@@ -216,7 +220,11 @@ function createToastWindow(): void {
   toastWindow.webContents.once('did-finish-load', () => {
     toastWindowReady = true
     log('[toast] did-finish-load — renderer ready')
-    _showNextToast()
+    if (pendingToast) {
+      const p = pendingToast
+      pendingToast = null
+      showToastImmediate(p)
+    }
   })
 
   toastWindow.webContents.on('did-fail-load', (_ev, code, desc) => {
@@ -232,7 +240,6 @@ function createToastWindow(): void {
   toastWindow.on('closed', () => {
     toastWindow      = null
     toastWindowReady = false
-    toastBusy        = false
     log('[toast] window closed/destroyed')
   })
 
@@ -251,37 +258,30 @@ function createToastWindow(): void {
   log('[toast] window created, waiting for did-finish-load')
 }
 
-function _showNextToast(): void {
-  if (toastBusy || toastQueue.length === 0) return
+function showToastImmediate(payload: ChatToastPayload): void {
   if (!toastWindowReady || !toastWindow || toastWindow.isDestroyed()) {
-    log('[toast] window not ready — will show when ready')
+    pendingToast = payload
+    log(`[toast] pending room=${payload.roomId}`)
     return
   }
-  toastBusy = true
-  const payload = toastQueue.shift()!
+  if (toastRoomId === payload.roomId) {
+    toastRoomCount++
+    if (toastRoomCount > 1) {
+      payload = { ...payload, messagePreview: `${toastRoomCount} ข้อความใหม่` }
+    }
+  } else {
+    toastRoomId    = payload.roomId
+    toastRoomCount = 1
+  }
   const { x, y } = getToastPosition()
   toastWindow.setPosition(x, y)
   toastWindow.webContents.send('toast:show', payload)
-  if (!toastWindow.isVisible()) toastWindow.showInactive()
-  log(`[toast] shown room=${payload.roomId} sender="${payload.senderName}" remaining=${toastQueue.length}`)
-}
-
-function queueToast(payload: ChatToastPayload): void {
-  if (toastBusy && toastQueue.length > 0) {
-    const last = toastQueue[toastQueue.length - 1]
-    if (last.roomId === payload.roomId && last.senderName === payload.senderName) {
-      toastQueue[toastQueue.length - 1] = payload
-      log(`[toast] coalesced room=${payload.roomId}`)
-      return
-    }
+  if (!toastWindow.isVisible()) {
+    toastWindow.showInactive()
+    log(`[toast] shown room=${payload.roomId} sender="${payload.senderName}"`)
+  } else {
+    log(`[toast] updated room=${payload.roomId} count=${toastRoomCount}`)
   }
-  if (toastQueue.length >= TOAST_MAX_QUEUE) {
-    toastQueue.shift()
-    log('[toast] queue full — dropped oldest')
-  }
-  toastQueue.push(payload)
-  log(`[toast] queued room=${payload.roomId} queueLen=${toastQueue.length} busy=${toastBusy}`)
-  _showNextToast()
 }
 
 // ── Global main-process error handlers ───────────────────────────────────────
@@ -717,21 +717,23 @@ ipcMain.handle('badge:update', (_ev, count: number): void => {
 
 ipcMain.handle('chat:toast', (_ev, payload: ChatToastPayload): void => {
   log(`[toast] IPC chat:toast room=${payload?.roomId} sender="${payload?.senderName}"`)
-  queueToast(payload)
+  showToastImmediate(payload)
 })
 
 ipcMain.on('toast:done', () => {
-  toastBusy = false
+  // Renderer's 4 s timer fired — hide the window and reset room tracking
+  toastRoomId    = null
+  toastRoomCount = 0
   if (toastWindow && !toastWindow.isDestroyed() && toastWindow.isVisible()) {
     toastWindow.hide()
   }
-  log('[toast] done — hidden, scheduling next')
-  setTimeout(_showNextToast, 250)
+  log('[toast] done — hidden')
 })
 
 ipcMain.on('toast:click', (_ev, roomId: number) => {
   log(`[toast] clicked room=${roomId} — focusing main window`)
-  toastBusy = false
+  toastRoomId    = null
+  toastRoomCount = 0
   if (toastWindow && !toastWindow.isDestroyed()) toastWindow.hide()
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()

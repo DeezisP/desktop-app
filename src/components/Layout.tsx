@@ -10,7 +10,7 @@ import { useStomp } from '../hooks/useStomp'
 import { useSettingsStore } from '../store/settingsStore'
 import { useAuth } from '../hooks/useAuth'
 import { useChatBadge } from '../hooks/useChatBadge'
-import { useChatToast } from '../hooks/useChatToast'
+import { useGlobalChatMessages } from '../hooks/useGlobalChatMessages'
 import { useChatStore } from '../store/chatStore'
 
 const PAGE_TITLES: Record<string, string> = {
@@ -145,7 +145,7 @@ export function Layout() {
   const setActiveRoom = useChatStore((s) => s.setActiveRoom)
 
   useChatBadge()
-  useChatToast()
+  useGlobalChatMessages()
 
   // When user clicks a toast the main process sends 'navigate:room' so the
   // renderer can open the correct conversation.

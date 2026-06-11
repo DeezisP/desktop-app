@@ -270,28 +270,10 @@ export function useChat() {
     }
   }, [softDeleteMessage, activeRoomId, loadMessages])
 
-  // ── Subscribe to admin notification topic ──────────────────────────────────
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    const unsub = warehouseStompClient.subscribe(
-      '/topic/admin/notifications',
-      (msg) => {
-        try {
-          const payload = JSON.parse(msg.body)
-          if (payload?.action === 'ROOM_DELETED' && payload.roomId != null) {
-            removeRoom(Number(payload.roomId))
-          } else if (payload && typeof payload.id === 'number') {
-            // New room created — refresh list
-            loadRooms()
-          }
-        } catch {
-          // malformed — ignore silently
-        }
-      },
-    )
-    return unsub
-  }, [isAuthenticated, loadRooms, removeRoom])
+  // NOTE: /topic/admin/notifications is handled globally by useGlobalChatMessages
+  // (mounted in Layout). It must NOT be subscribed here — the STOMP client keeps
+  // only one handler per topic; a duplicate subscription here would hijack the
+  // global one and delete it when Chat unmounts, breaking notifications everywhere.
 
   // ── Subscribe to admin presence topic ──────────────────────────────────────
 
@@ -397,11 +379,7 @@ export function useChat() {
     }
   }, [activeRoomId, appendMessage, setTyping, gapFill, sendTyping, user, setPartnerLastReadId, loadPartnerReadState])
 
-  // ── Initial room load ───────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (isAuthenticated) loadRooms()
-  }, [isAuthenticated, loadRooms])
+  // NOTE: initial loadRooms() is handled by useGlobalChatMessages in Layout.
 
   return {
     loadRooms,

@@ -25,7 +25,7 @@ function ChatBadge() {
   const count = useChatStore(selectTotalUnread)
   if (count === 0) return null
   return (
-    <span className="ml-auto flex-shrink-0 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[9px] font-bold flex items-center justify-center">
+    <span className="ml-auto flex-shrink-0 min-w-[16px] h-4 px-1 rounded-full bg-orange-500 text-white text-[9px] font-bold flex items-center justify-center">
       {count > 99 ? '99+' : count}
     </span>
   )
