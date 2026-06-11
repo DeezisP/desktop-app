@@ -3,12 +3,13 @@ import {
   Sun, Moon, Monitor, Volume2, VolumeX, Bell, BellOff,
   Info, Cpu, MapPin, ChevronRight, CheckCircle2,
   RefreshCw, Download, RotateCcw, AlertTriangle, Loader2,
-  ArrowDownToLine,
+  ArrowDownToLine, Zap,
 } from 'lucide-react'
 import { useSettingsStore, type ThemeMode } from '../store/settingsStore'
 import { sounds } from '../service/sounds'
 import { toast } from '../components/Toast'
 import type { UpdateStatus } from '../types/api'
+import { formatBytes } from '../lib/utils'
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
@@ -210,16 +211,27 @@ function UpdatesSection() {
         )
       case 'downloading':
         return (
-          <div className="flex flex-col gap-1 min-w-0">
-            <span className="text-xs text-blue-600 dark:text-blue-400">
-              ดาวน์โหลด {status.percent}%
-            </span>
-            <div className="w-32 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-blue-600 dark:text-blue-400 tabular-nums">
+                {status.percent}% · {formatBytes(status.transferred)} / {formatBytes(status.total)}
+              </span>
+              {status.isDifferential && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                  <Zap size={9} className="flex-shrink-0" />
+                  Differential
+                </span>
+              )}
+            </div>
+            <div className="w-40 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
               <div
                 className="h-full rounded-full bg-blue-500 transition-all duration-300"
                 style={{ width: `${status.percent}%` }}
               />
             </div>
+            <span className="text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums">
+              {Math.round(status.bytesPerSecond / 1024)} KB/s
+            </span>
           </div>
         )
       case 'downloaded':

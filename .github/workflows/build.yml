@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 # Grant the GITHUB_TOKEN write access to repository contents so the release
-# step can create GitHub Releases and upload assets (exe + latest.yml).
+# step can create GitHub Releases and upload assets (exe + blockmap + latest.yml).
 # Without this, softprops/action-gh-release@v2 fails with:
 #   403 Resource not accessible by integration
 permissions:
@@ -44,22 +44,46 @@ jobs:
 
       - name: Build Electron installer
         # --publish never: build artifacts locally; the release step below uploads them.
-        # electron-builder always writes latest.yml alongside the .exe when building
-        # a full NSIS target (not --dir). Both files are required by electron-updater.
+        # electron-builder writes alongside the .exe:
+        #   latest.yml           — version manifest (required by electron-updater)
+        #   *.exe.blockmap       — block-level diff map (required for differential updates)
+        # Both the .exe and latest.yml artifact names must match exactly for
+        # auto-updater to resolve the download URL correctly.
         run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: List release artifacts (debug)
-        run: dir release
-        shell: cmd
+      - name: Verify differential update artifacts
+        # Fail the build early if the blockmap is missing — without it every
+        # user will download the full installer instead of a differential patch.
+        shell: pwsh
+        run: |
+          $blockmap = Get-ChildItem release\*.blockmap -ErrorAction SilentlyContinue
+          if (-not $blockmap) {
+            Write-Error "ERROR: No .blockmap file found in release\. Differential updates will not work."
+            exit 1
+          }
+          Write-Host "=== Release artifacts ==="
+          Get-ChildItem release\* -File | ForEach-Object {
+            $size = "{0:N0}" -f $_.Length
+            Write-Host ("  {0,-55} {1,12} bytes" -f $_.Name, $size)
+          }
+          Write-Host ""
+          Write-Host "=== latest.yml ==="
+          Get-Content release\latest.yml
+          Write-Host ""
+          $exe  = (Get-ChildItem release\*.exe | Select-Object -First 1).Length
+          $bmap = (Get-ChildItem release\*.blockmap | Select-Object -First 1).Length
+          $pct  = [math]::Round($bmap / $exe * 100, 2)
+          Write-Host ("Blockmap is {0}% the size of the installer — differential downloads expected to save ~80-95% on routine updates." -f $pct)
 
-      - name: Upload installer artifact
+      - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
           name: PerfectElectronicWarehouseSetup
           path: |
             release/*.exe
+            release/*.blockmap
             release/latest.yml
           retention-days: 30
 
@@ -67,11 +91,18 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          # Both files are required for electron-updater auto-update to work:
-          #   *.exe       — NSIS installer end-users download on first install or manual update
-          #   latest.yml  — version manifest electron-updater fetches to detect new releases
+          # All three files are required for differential auto-update:
+          #   *.exe          — NSIS installer (full, for first-time installs)
+          #   *.exe.blockmap — block map that electron-updater diffs against to
+          #                    download only changed blocks on subsequent updates
+          #   latest.yml     — version manifest electron-updater polls to detect
+          #                    new releases; contains sha512, size, blockMapSize
+          #
+          # If *.blockmap is missing from the release, electron-updater falls
+          # back silently to downloading the full installer every time.
           files: |
             release/*.exe
+            release/*.blockmap
             release/latest.yml
           name: Perfect Electronic Warehouse ${{ github.ref_name }}
           generate_release_notes: true

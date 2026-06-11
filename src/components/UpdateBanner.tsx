@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Download, RotateCcw, X, Loader2 } from 'lucide-react'
+import { Download, RotateCcw, X, Loader2, Zap } from 'lucide-react'
 import type { UpdateStatus } from '../types/api'
+import { formatBytes } from '../lib/utils'
 
 // Shows a non-blocking banner at the top of the app when an update is detected.
 // The user is never forced to update — they choose when to act.
 
 export function UpdateBanner() {
-  const [status, setStatus]   = useState<UpdateStatus>({ state: 'idle' })
-  const [visible, setVisible] = useState(false)
+  const [status, setStatus]     = useState<UpdateStatus>({ state: 'idle' })
+  const [visible, setVisible]   = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const unsubRef = useRef<(() => void) | null>(null)
 
@@ -18,7 +19,6 @@ export function UpdateBanner() {
 
     unsubRef.current = api.onUpdateStatus((s) => {
       setStatus(s)
-      // Show the banner for actionable update states only
       if (s.state === 'available' || s.state === 'downloading' || s.state === 'downloaded') {
         setVisible(true)
         setDismissed(false)
@@ -28,20 +28,27 @@ export function UpdateBanner() {
     return () => { unsubRef.current?.(); unsubRef.current = null }
   }, [])
 
-  function handleInstall() {
-    window.electronAPI?.installUpdate?.()
-  }
-
-  function handleDismiss() {
-    setDismissed(true)
-    setVisible(false)
-  }
+  function handleInstall() { window.electronAPI?.installUpdate?.() }
+  function handleDismiss() { setDismissed(true); setVisible(false) }
 
   const show = visible && !dismissed && (
     status.state === 'available' ||
     status.state === 'downloading' ||
     status.state === 'downloaded'
   )
+
+  // ── Download subtitle ──────────────────────────────────────────────────────
+
+  const subtitle = (() => {
+    if (status.state === 'available')   return `เวอร์ชัน ${status.version} — กำลังดาวน์โหลดในพื้นหลัง…`
+    if (status.state === 'downloaded')  return 'พร้อมติดตั้งแล้ว — คลิกเพื่อรีสตาร์ท'
+    if (status.state === 'downloading') {
+      const transferred = formatBytes(status.transferred)
+      const total       = formatBytes(status.total)
+      return `${status.percent}% · ${transferred} / ${total}`
+    }
+    return ''
+  })()
 
   return (
     <AnimatePresence>
@@ -55,20 +62,20 @@ export function UpdateBanner() {
         >
           {/* Left: icon + text */}
           <div className="flex items-center gap-2.5 min-w-0">
-            {status.state === 'downloading' ? (
-              <Loader2 size={15} className="flex-shrink-0 animate-spin" />
-            ) : (
-              <Download size={15} className="flex-shrink-0" />
-            )}
-            <div className="min-w-0">
-              <span className="text-sm font-semibold">New Update Available</span>
-              <span className="hidden sm:inline text-sm text-blue-100 ml-2">
-                {status.state === 'available'
-                  ? `เวอร์ชัน ${status.version} — กำลังดาวน์โหลดในพื้นหลัง…`
-                  : status.state === 'downloading'
-                  ? `ดาวน์โหลด ${status.percent}%…`
-                  : 'A new version is ready. Please refresh or update to continue using the latest features.'}
-              </span>
+            {status.state === 'downloading'
+              ? <Loader2 size={15} className="flex-shrink-0 animate-spin" />
+              : <Download size={15} className="flex-shrink-0" />
+            }
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+              <span className="text-sm font-semibold whitespace-nowrap">New Update Available</span>
+              <span className="hidden sm:inline text-sm text-blue-100">{subtitle}</span>
+              {/* Differential badge — shown when the download is a blockmap patch */}
+              {status.state === 'downloading' && status.isDifferential && (
+                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white/20 text-white whitespace-nowrap">
+                  <Zap size={9} className="flex-shrink-0" />
+                  Differential
+                </span>
+              )}
             </div>
           </div>
 

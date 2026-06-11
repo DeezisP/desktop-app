@@ -80,6 +80,19 @@ nsis:
   deleteAppDataOnUninstall: false
   displayLanguageSelector: false
 
+  # ── Differential / blockmap updates ─────────────────────────────────────────
+  # differentialPackage stores each app file as a separate compressed entry
+  # inside the NSIS installer (instead of one solid LZMA stream). This means
+  # a changed JS bundle only dirties its own compressed block rather than
+  # invalidating the entire archive, giving electron-updater 80–95% bandwidth
+  # savings on routine version bumps.
+  #
+  # electron-builder always writes a .blockmap alongside the .exe.
+  # That file MUST be published to GitHub Releases so electron-updater can
+  # fetch it, compare it to the locally-cached installer, and download only
+  # the changed blocks. See build.yml for the upload step.
+  differentialPackage: true
+
 # ── Auto-update publishing ────────────────────────────────────────────────────
 # electron-updater reads this section to know where to check for new releases.
 # Releases must be published (not draft) for auto-update to find them.

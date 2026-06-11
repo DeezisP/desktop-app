@@ -124,7 +124,7 @@ export type UpdateStatus =
   | { state: 'checking' }
   | { state: 'available';     version: string; releaseNotes?: string }
   | { state: 'not-available'; version: string }
-  | { state: 'downloading';   percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloading';   percent: number; bytesPerSecond: number; transferred: number; total: number; isDifferential: boolean }
   | { state: 'downloaded';    version: string }
   | { state: 'error';         message: string }
 
@@ -133,21 +133,41 @@ function sendUpdateStatus(status: UpdateStatus) {
   mainWindow?.webContents.send('update:status', status)
 }
 
+// Estimate for the full NSIS installer size (used to detect differential downloads).
+// A differential download is typically <35% of the full installer size.
+const FULL_INSTALLER_ESTIMATE_BYTES = 150 * 1024 * 1024  // 150 MB upper bound
+
+function fmtBytes(n: number): string {
+  if (n < 1024)             return `${n} B`
+  if (n < 1024 * 1024)      return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
 function setupAutoUpdater() {
   log('[updater] provider=github')
   log('[updater] owner=DeezisP')
   log('[updater] repo=desktop-app')
   log('[updater] releaseType=release')
 
-  autoUpdater.logger              = null   // we capture everything via events below
-  autoUpdater.autoDownload        = true   // background download, no prompt
-  autoUpdater.autoInstallOnAppQuit = false // user must click "Restart and Install"
+  autoUpdater.logger               = null   // we capture everything via events below
+  autoUpdater.autoDownload         = true   // background download, no prompt
+  autoUpdater.autoInstallOnAppQuit = false  // user must click "Restart and Install"
+  autoUpdater.allowDowngrade       = false  // never roll back to an older version
+
+  // Track whether the current download is differential (set on first progress event).
+  let downloadIsDifferential = false
+  let downloadTypeLogged     = false
 
   autoUpdater.on('checking-for-update', () => {
+    downloadIsDifferential = false
+    downloadTypeLogged     = false
     sendUpdateStatus({ state: 'checking' })
   })
 
   autoUpdater.on('update-available', (info) => {
+    downloadIsDifferential = false
+    downloadTypeLogged     = false
     sendUpdateStatus({
       state:        'available',
       version:      String(info.version),
@@ -160,16 +180,34 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('download-progress', (progress) => {
+    // On the first progress event, determine download type from the total size.
+    // electron-updater reports the actual bytes that need to be fetched:
+    //   differential → only changed blocks → typically 2–15 MB
+    //   full         → entire installer   → typically 120–150 MB
+    if (!downloadTypeLogged) {
+      downloadIsDifferential = progress.total < FULL_INSTALLER_ESTIMATE_BYTES * 0.35
+      downloadTypeLogged = true
+      log(
+        `[updater] download started — type=${downloadIsDifferential ? 'DIFFERENTIAL' : 'FULL'}` +
+        ` total=${fmtBytes(progress.total)}` +
+        (downloadIsDifferential
+          ? ` (saving ~${fmtBytes(FULL_INSTALLER_ESTIMATE_BYTES - progress.total)} vs full)`
+          : ''),
+      )
+    }
+
     sendUpdateStatus({
       state:          'downloading',
       percent:        Math.round(progress.percent),
       bytesPerSecond: Math.round(progress.bytesPerSecond),
       transferred:    progress.transferred,
       total:          progress.total,
+      isDifferential: downloadIsDifferential,
     })
   })
 
   autoUpdater.on('update-downloaded', (info) => {
+    log(`[updater] download complete — version=${info.version} isDifferential=${downloadIsDifferential}`)
     sendUpdateStatus({ state: 'downloaded', version: String(info.version) })
     try {
       if (Notification.isSupported()) {
@@ -183,10 +221,16 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (err) => {
-    sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
+    const msg = err?.message ?? String(err)
+    // electron-updater falls back to a full download when the blockmap can't be
+    // fetched (404 — missing from the release). Log a clear hint in that case.
+    if (msg.includes('blockmap') || msg.includes('ENOTFOUND') || msg.includes('404')) {
+      log('[updater] WARNING: differential download failed — check that *.blockmap is published to the GitHub release. Falling back to full download.')
+    }
+    sendUpdateStatus({ state: 'error', message: msg })
   })
 
-  log('[updater] initialised')
+  log('[updater] initialised (allowDowngrade=false, autoDownload=true, autoInstallOnAppQuit=false)')
 }
 
 // ── App menu ──────────────────────────────────────────────────────────────────

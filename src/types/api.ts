@@ -29,7 +29,7 @@ export type UpdateStatus =
   | { state: 'checking' }
   | { state: 'available';     version: string; releaseNotes?: string }
   | { state: 'not-available'; version: string }
-  | { state: 'downloading';   percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloading';   percent: number; bytesPerSecond: number; transferred: number; total: number; isDifferential: boolean }
   | { state: 'downloaded';    version: string }
   | { state: 'error';         message: string }
 
