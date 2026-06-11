@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowDownToLine, Package, ScanBarcode, Boxes,
-  Tag, History, Settings, LogOut, MessageSquare, Receipt,
+  Tag, History, Settings, LogOut, MessageSquare, Receipt, Images,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useChatStore, selectTotalUnread } from '../store/chatStore'
@@ -51,6 +51,12 @@ const SECTIONS: NavSection[] = [
       { to: '/stock',   label: 'สต็อกสินค้า', icon: <Boxes size={15} /> },
       { to: '/barcode', label: 'ป้ายพัสดุ',   icon: <Tag size={15} /> },
       { to: '/history', label: 'ประวัติสต็อก', icon: <History size={15} /> },
+    ],
+  },
+  {
+    header: 'สื่อ',
+    items: [
+      { to: '/albums', label: 'อัลบั้มรูป', icon: <Images size={15} /> },
     ],
   },
   {

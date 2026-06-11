@@ -18,6 +18,7 @@ import WebOrderDetailPanel from './panels/WebOrderDetailPanel'
 import PackingPanel        from './panels/PackingPanel'
 import StockListPanel      from './panels/StockListPanel'
 import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
+import Albums             from './screens/Albums'
 
 // Side-effect import: initialises theme from localStorage before first paint
 import './store/settingsStore'
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
             <Route path="history"     element={<Padded><StockHistory /></Padded>} />
+            <Route path="albums"      element={<Albums />} />
             <Route path="chat"        element={<Chat />} />
             <Route path="settings"    element={<Settings />} />
           </Route>
