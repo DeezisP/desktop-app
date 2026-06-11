@@ -36,6 +36,9 @@
     box-shadow: 0 4px 20px rgba(37, 99, 235, 0.55), 0 0 0 3px rgba(59, 130, 246, 0.25);
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .badge.pop {
     animation: pop-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
@@ -63,7 +66,6 @@
     letter-spacing: -0.3px;
   }
 
-  /* Red dot for new message indicator */
   .pulse-ring {
     position: absolute;
     top: -4px;
@@ -90,7 +92,7 @@
 </head>
 <body>
 <div class="badge-wrap">
-  <div class="badge" id="badge" onclick="handleClick()">
+  <div class="badge pop" id="badge">
     <span class="pulse-ring"></span>
     <span class="badge-icon">💬</span>
     <span class="badge-count" id="count">1</span>
@@ -98,17 +100,42 @@
 </div>
 
 <script>
+  var countEl = document.getElementById('count')
+  var badgeEl = document.getElementById('badge')
+
+  console.log('[badge.html] loaded, badgeAPI present =', !!window.badgeAPI)
+
+  function setCount(n) {
+    if (!countEl) return
+    countEl.textContent = n > 99 ? '99+' : String(n)
+    // Replay pop-in animation on each new count
+    if (badgeEl) {
+      badgeEl.classList.remove('pop')
+      // Force reflow so removing/re-adding the class restarts the animation
+      void badgeEl.offsetWidth
+      badgeEl.classList.add('pop')
+    }
+    console.log('[badge.html] count updated to', n)
+  }
+
   function handleClick() {
+    console.log('[badge.html] clicked')
     if (window.badgeAPI) {
       window.badgeAPI.clickBadge()
     }
   }
 
+  document.getElementById('badge').addEventListener('click', handleClick)
+
+  // Register count listener — preload exposes badgeAPI synchronously before
+  // this script runs, so window.badgeAPI is always defined here
   if (window.badgeAPI) {
     window.badgeAPI.onCount(function(count) {
-      var el = document.getElementById('count')
-      if (el) el.textContent = count > 99 ? '99+' : String(count)
+      setCount(count)
     })
+    console.log('[badge.html] onCount listener registered')
+  } else {
+    console.error('[badge.html] ERROR: window.badgeAPI is not defined — preload may have failed')
   }
 </script>
 </body>

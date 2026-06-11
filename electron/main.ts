@@ -1,6 +1,7 @@
 import {
   app, BrowserWindow, ipcMain, safeStorage,
   session, Menu, shell, Notification, net, dialog,
+  screen, nativeImage,
 } from 'electron'
 import { createRequire } from 'node:module'
 import path   from 'node:path'
@@ -26,11 +27,12 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 const PRODUCTION_ORIGIN   = 'https://perfectelt.com'
 
 const tokenStore = new Map<string, Buffer>()
-let mainWindow:    BrowserWindow | null = null
-let badgeWindow:   BrowserWindow | null = null
-let logPath:       string | null = null
-let tokenFilePath: string | null = null
-let badgeCount:    number = 0
+let mainWindow:       BrowserWindow | null = null
+let badgeWindow:      BrowserWindow | null = null
+let badgeWindowReady: boolean = false   // true after badge.html fires did-finish-load
+let badgeCount:       number  = 0       // latest unread count; persisted across show/hide
+let logPath:          string | null = null
+let tokenFilePath:    string | null = null
 
 // ── Token persistence (survives app restarts) ─────────────────────────────────
 // Buffers are stored as base64 in a 0600 JSON file inside userData.
@@ -106,22 +108,52 @@ function log(msg: string) {
 // A small always-on-top frameless window that appears in the bottom-right
 // corner of the screen when new chat messages arrive and the app is not focused.
 // Clicking it brings the main window to the front and hides the badge.
+//
+// Architecture notes:
+//  • screen / nativeImage are imported at the top via ESM — never use require()
+//  • badgeWindowReady gates all webContents.send calls to avoid the race where
+//    the main process tries to push IPC before badge.html has finished loading
+//  • The badge window is pre-created at startup (hidden) so it is always ready
+//  • On main-window blur we re-evaluate the badge state because the unread count
+//    may not have changed (so useChatBadge wouldn't fire), but focus just changed
 
-function createBadgeWindow() {
-  if (badgeWindow && !badgeWindow.isDestroyed()) return
+function getBadgePosition(): { x: number; y: number } {
+  const WIN_SIZE = 90
+  let disp: Electron.Display
+  try {
+    disp = mainWindow && !mainWindow.isDestroyed()
+      ? screen.getDisplayMatching(mainWindow.getBounds())
+      : screen.getPrimaryDisplay()
+  } catch {
+    disp = screen.getPrimaryDisplay()
+  }
+  const { x: dx, y: dy, width: dw, height: dh } = disp.workArea
+  return { x: dx + dw - WIN_SIZE - 16, y: dy + dh - WIN_SIZE - 16 }
+}
+
+function createBadgeWindow(): void {
+  if (badgeWindow && !badgeWindow.isDestroyed()) {
+    log('[badge] createBadgeWindow: already exists — skipping')
+    return
+  }
 
   const badgePreloadPath = path.join(__dirname, 'badge-preload.mjs')
-  const { width: sw, height: sh } = require('electron').screen.getPrimaryDisplay().workAreaSize
+  const badgePreloadExists = fs.existsSync(badgePreloadPath)
+  log(`[badge] creating window — preload=${badgePreloadPath} exists=${badgePreloadExists}`)
 
-  const WIN_SIZE = 90
+  const { x, y } = getBadgePosition()
+  const WIN_SIZE  = 90
+
+  badgeWindowReady = false
 
   badgeWindow = new BrowserWindow({
     width:           WIN_SIZE,
     height:          WIN_SIZE,
-    x:               sw - WIN_SIZE - 16,
-    y:               sh - WIN_SIZE - 16,
+    x,
+    y,
     frame:           false,
     transparent:     true,
+    backgroundColor: '#00000000',  // required on Windows for true transparency
     alwaysOnTop:     true,
     skipTaskbar:     true,
     resizable:       false,
@@ -129,7 +161,7 @@ function createBadgeWindow() {
     minimizable:     false,
     maximizable:     false,
     closable:        false,
-    focusable:       false,
+    focusable:       false,        // prevent badge from stealing keyboard focus
     show:            false,
     hasShadow:       false,
     webPreferences: {
@@ -141,89 +173,119 @@ function createBadgeWindow() {
   })
 
   badgeWindow.setAlwaysOnTop(true, 'screen-saver')
-  badgeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  try { badgeWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) } catch {}
 
-  const badgePath = VITE_DEV_SERVER_URL
+  // ── Race-condition fix: only show/send after page has fully loaded ───────────
+  badgeWindow.webContents.once('did-finish-load', () => {
+    badgeWindowReady = true
+    log('[badge] did-finish-load — renderer ready')
+    // Re-evaluate now that the renderer can receive IPC
+    const focused = mainWindow ? mainWindow.isFocused() : false
+    log(`[badge] on-ready reapply: count=${badgeCount} focused=${focused}`)
+    if (badgeCount > 0 && !focused) {
+      _showBadge(badgeCount)
+    }
+  })
+
+  badgeWindow.webContents.on('did-fail-load', (_ev, code, desc) => {
+    log(`[badge] did-fail-load code=${code} desc="${desc}"`)
+    badgeWindowReady = false
+  })
+
+  // Forward badge renderer console to the main log
+  badgeWindow.webContents.on('console-message', (_ev, level, message) => {
+    const lvl = ['verbose', 'info', 'warning', 'error'][level] ?? `level${level}`
+    log(`[badge-renderer][${lvl}] ${message}`)
+  })
+
+  badgeWindow.on('closed', () => {
+    badgeWindow      = null
+    badgeWindowReady = false
+    log('[badge] window closed/destroyed')
+  })
+
+  const badgeSrc = VITE_DEV_SERVER_URL
     ? `${VITE_DEV_SERVER_URL}badge.html`
     : path.join(__dirname, '../dist/badge.html')
 
+  if (!VITE_DEV_SERVER_URL) {
+    log(`[badge] html path=${badgeSrc} exists=${fs.existsSync(badgeSrc)}`)
+  }
+
   if (VITE_DEV_SERVER_URL) {
-    badgeWindow.loadURL(badgePath)
+    badgeWindow.loadURL(badgeSrc).catch((e) => log(`[badge] loadURL error: ${e}`))
   } else {
-    badgeWindow.loadFile(badgePath)
+    badgeWindow.loadFile(badgeSrc).catch((e) => log(`[badge] loadFile error: ${e}`))
   }
 
-  badgeWindow.on('closed', () => { badgeWindow = null })
-  log('[badge] window created')
+  log('[badge] window created, waiting for did-finish-load')
 }
 
-function showBadge(count: number) {
-  if (!badgeWindow || badgeWindow.isDestroyed()) {
-    createBadgeWindow()
+function _showBadge(count: number): void {
+  if (!badgeWindowReady || !badgeWindow || badgeWindow.isDestroyed()) {
+    // createBadgeWindow was already called; did-finish-load will call updateBadgeState again
+    log(`[badge] _showBadge skip: ready=${badgeWindowReady} exists=${!!badgeWindow}`)
+    return
   }
-  badgeWindow?.webContents.send('badge:count', count)
-  if (!badgeWindow?.isVisible()) {
-    badgeWindow?.showInactive()
-    log(`[badge] shown count=${count}`)
+  const { x, y } = getBadgePosition()
+  badgeWindow.setPosition(x, y)
+  badgeWindow.webContents.send('badge:count', count)
+  if (!badgeWindow.isVisible()) {
+    badgeWindow.showInactive()
+    log(`[badge] shown count=${count} pos=(${x},${y})`)
+  } else {
+    log(`[badge] count updated → ${count}`)
   }
 }
 
-function hideBadge() {
+function _hideBadge(): void {
   if (badgeWindow && !badgeWindow.isDestroyed() && badgeWindow.isVisible()) {
     badgeWindow.hide()
     log('[badge] hidden')
   }
 }
 
-function updateBadgeState(count: number) {
-  badgeCount = count
+function updateBadgeState(count: number): void {
+  const prev = badgeCount
+  badgeCount  = count
+  const focused = mainWindow ? mainWindow.isFocused() : false
+  log(`[badge] updateBadgeState count=${count} (prev=${prev}) focused=${focused} ready=${badgeWindowReady}`)
 
-  // Windows taskbar overlay icon badge
+  // ── Windows taskbar overlay icon (red circle with count) ────────────────────
   if (mainWindow && !mainWindow.isDestroyed() && process.platform === 'win32') {
-    if (count > 0) {
-      try {
-        const { nativeImage } = require('electron')
-        // Draw a red circle with count number as a 16×16 canvas
+    try {
+      if (count > 0) {
         const size = 16
-        const canvas = Buffer.alloc(size * size * 4)
-        // Simple red circle: fill with #ef4444 (rgba 239,68,68)
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            const cx = x - size / 2 + 0.5
-            const cy = y - size / 2 + 0.5
-            const idx = (y * size + x) * 4
+        const buf  = Buffer.alloc(size * size * 4)
+        for (let py = 0; py < size; py++) {
+          for (let px = 0; px < size; px++) {
+            const cx  = px - size / 2 + 0.5
+            const cy  = py - size / 2 + 0.5
+            const idx = (py * size + px) * 4
             if (cx * cx + cy * cy <= (size / 2) * (size / 2)) {
-              canvas[idx]     = 239  // R
-              canvas[idx + 1] = 68   // G
-              canvas[idx + 2] = 68   // B
-              canvas[idx + 3] = 255  // A
+              buf[idx] = 239; buf[idx+1] = 68; buf[idx+2] = 68; buf[idx+3] = 255
             }
           }
         }
-        const overlay = nativeImage.createFromBuffer(canvas, { width: size, height: size })
+        const img   = nativeImage.createFromBuffer(buf, { width: size, height: size })
         const label = count > 99 ? '99+' : String(count)
-        mainWindow.setOverlayIcon(overlay, `${label} ข้อความใหม่`)
-      } catch (e) {
-        log(`[badge] setOverlayIcon error: ${e}`)
-      }
-    } else {
-      try {
-        const { nativeImage } = require('electron')
+        mainWindow.setOverlayIcon(img, `${label} ข้อความใหม่`)
+      } else {
         mainWindow.setOverlayIcon(nativeImage.createEmpty(), '')
-      } catch {}
-    }
+      }
+    } catch (e) { log(`[badge] setOverlayIcon error: ${e}`) }
   }
 
-  // macOS / Linux dock badge
+  // ── macOS / Linux dock badge ────────────────────────────────────────────────
   if (process.platform !== 'win32') {
     try { app.setBadgeCount(count) } catch {}
   }
 
-  const focused = mainWindow ? mainWindow.isFocused() : false
+  // ── Floating overlay badge ──────────────────────────────────────────────────
   if (count > 0 && !focused) {
-    showBadge(count)
+    _showBadge(count)
   } else {
-    hideBadge()
+    _hideBadge()
   }
 }
 
@@ -531,20 +593,33 @@ function createWindow() {
     log(`[renderer][${lvl}] ${message}  (${source}:${line})`)
   })
 
+  // Hide badge and clear taskbar/dock badge when the app gains focus
   mainWindow.on('focus', () => {
-    hideBadge()
-    // Clear taskbar/dock badge on focus
+    log(`[badge] main-window focus — hiding badge, count was ${badgeCount}`)
+    _hideBadge()
     if (process.platform === 'win32') {
-      try {
-        const { nativeImage } = require('electron')
-        mainWindow?.setOverlayIcon(nativeImage.createEmpty(), '')
-      } catch {}
+      try { mainWindow?.setOverlayIcon(nativeImage.createEmpty(), '') } catch {}
     } else {
       try { app.setBadgeCount(0) } catch {}
     }
   })
 
-  mainWindow.on('closed', () => { mainWindow = null })
+  // Re-evaluate badge when the app loses focus — unread count may not have changed
+  // so useChatBadge wouldn't fire; we need to show the badge here if count > 0
+  mainWindow.on('blur', () => {
+    log(`[badge] main-window blur — reapplying badge state count=${badgeCount}`)
+    updateBadgeState(badgeCount)
+  })
+
+  // Destroy the badge window together with the main window so that
+  // window-all-closed fires correctly on Windows/Linux (hidden windows
+  // still count toward getAllWindows(), so the app would stay alive otherwise)
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    if (badgeWindow && !badgeWindow.isDestroyed()) {
+      badgeWindow.destroy()
+    }
+  })
 
   // CORS: spoof Origin so backend CORS allows file:// requests.
   //
@@ -654,7 +729,7 @@ ipcMain.handle('badge:update', (_ev, count: number): void => {
 // Badge window sends this when the user clicks it
 ipcMain.on('badge:click', () => {
   log('[badge] clicked — focusing main window')
-  hideBadge()
+  _hideBadge()
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
@@ -986,6 +1061,9 @@ app.whenReady().then(() => {
   setupAutoUpdater()
   buildMenu()
   createWindow()
+  // Pre-create the badge window while the app is starting so it is fully loaded
+  // and ready before the first badge:update IPC arrives from the renderer.
+  createBadgeWindow()
 }).catch((err) => {
   log(`[main] app.whenReady failed: ${err?.message}\n${err?.stack ?? ''}`)
 })
@@ -994,8 +1072,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+// On macOS: reopen the main window when the dock icon is clicked.
+// Do NOT use getAllWindows().length === 0 — the hidden badge window keeps the
+// count > 0 even when the main window is closed, breaking this check.
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  if (!mainWindow) {
+    createWindow()
+    createBadgeWindow()
+  }
 })
 
 app.on('render-process-gone', (_ev, _wc, details) => {
