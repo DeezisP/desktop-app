@@ -16,6 +16,14 @@ export type ElectronAPI = {
   showNotification: (title: string, body?: string) => Promise<void>
   /** Print an HTML string via the native OS print dialog (avoids Chromium print-preview issues) */
   printHtml: (html: string) => Promise<{ ok: boolean; error?: string }>
+  /** Open a native Save dialog and return the chosen path (null if cancelled) */
+  showSaveDialog: (options: {
+    title?: string
+    defaultPath?: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }) => Promise<string | null>
+  /** Write binary data to a file path chosen via showSaveDialog */
+  writeFile: (path: string, data: Uint8Array) => Promise<{ ok: boolean; error?: string }>
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   /** Open Google OAuth popup and return access token on success */
@@ -47,7 +55,9 @@ const api: ElectronAPI = {
   readLog:     ()           => ipcRenderer.invoke('log:read'),
   logPath:     ()           => ipcRenderer.invoke('log:path'),
   showNotification: (title, body) => ipcRenderer.invoke('notify:show', title, body),
-  printHtml: (html) => ipcRenderer.invoke('print:html', html),
+  printHtml:      (html)         => ipcRenderer.invoke('print:html', html),
+  showSaveDialog: (options)      => ipcRenderer.invoke('dialog:showSave', options),
+  writeFile:      (path, data)   => ipcRenderer.invoke('fs:writeFile', path, data),
 
   // ── Google OAuth ───────────────────────────────────────────────────────────
   googleLogin: () => ipcRenderer.invoke('auth:google'),

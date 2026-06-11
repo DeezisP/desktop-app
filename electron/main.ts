@@ -1,6 +1,6 @@
 import {
   app, BrowserWindow, ipcMain, safeStorage,
-  session, Menu, shell, Notification, net,
+  session, Menu, shell, Notification, net, dialog,
 } from 'electron'
 import { createRequire } from 'node:module'
 import path   from 'node:path'
@@ -324,7 +324,7 @@ function createWindow() {
     height:    860,
     minWidth:  1100,
     minHeight: 680,
-    title:     'Perfect Electronic',
+    title:     'Admin Perfect Electronic',
     icon:      fs.existsSync(iconPath) ? iconPath : undefined,
     backgroundColor: '#0f172a',
     show: false,
@@ -503,6 +503,32 @@ ipcMain.handle('notify:show', (_ev, title: string, body?: string): void => {
   try {
     if (Notification.isSupported()) new Notification({ title, body: body ?? '', silent: true }).show()
   } catch (e) { log(`[main] notify:show error: ${e}`) }
+})
+
+// ── Save dialog + file write (album downloads) ────────────────────────────────
+
+ipcMain.handle('dialog:showSave', async (
+  _ev,
+  options: Electron.SaveDialogOptions,
+): Promise<string | null> => {
+  const { canceled, filePath } = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, options)
+    : await dialog.showSaveDialog(options)
+  return canceled || !filePath ? null : filePath
+})
+
+ipcMain.handle('fs:writeFile', async (
+  _ev,
+  filePath: string,
+  data: Uint8Array,
+): Promise<{ ok: boolean; error?: string }> => {
+  try {
+    fs.writeFileSync(filePath, Buffer.from(data))
+    return { ok: true }
+  } catch (e) {
+    log(`[fs:writeFile] error: ${e}`)
+    return { ok: false, error: String(e) }
+  }
 })
 
 // ── Label / document printing ─────────────────────────────────────────────────
@@ -744,7 +770,7 @@ ipcMain.handle('update:install', (): void => {
 // button, and safeStorage all display "Perfect Electronic" — not the default
 // "electron.app.Perfect Electronic" fallback.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('Perfect Electronic')
+  app.setAppUserModelId('Admin Perfect Electronic')
 }
 
 // ── Protocol registration ─────────────────────────────────────────────────────

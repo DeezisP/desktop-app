@@ -56,6 +56,14 @@ export interface ElectronAPI {
   checkForUpdates: () => Promise<void>
   installUpdate:   () => Promise<void>
   onUpdateStatus:  (cb: (status: UpdateStatus) => void) => () => void
+
+  // ── File system ────────────────────────────────────────────────────────────
+  showSaveDialog: (options: {
+    title?: string
+    defaultPath?: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }) => Promise<string | null>
+  writeFile: (path: string, data: Uint8Array) => Promise<{ ok: boolean; error?: string }>
 }
 
 declare global {

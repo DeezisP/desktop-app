@@ -111,11 +111,11 @@ export function Sidebar() {
           className="h-7 w-7 rounded-lg object-cover flex-shrink-0 shadow-sm"
         />
         <div className="min-w-0">
-          <p className="text-[12px] font-semibold text-zinc-800 dark:text-zinc-100 leading-tight truncate">
-            Perfect Electronic
+          <p className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-100 leading-tight truncate">
+            Admin Perfect Electronic
           </p>
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-tight mt-0.5">
-            ระบบคลังสินค้า
+            ระบบจัดการคลังสินค้า
           </p>
         </div>
       </div>

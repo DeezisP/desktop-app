@@ -4,7 +4,6 @@ import React, {
 } from 'react'
 import { createPortal } from 'react-dom'
 import JSZip from 'jszip'
-import { saveAs } from 'file-saver'
 import {
   Plus, Upload, Trash2, FolderOpen, X, MoreVertical, Download,
   Loader2, Search, Check, CheckCircle2, XCircle, Edit3,
@@ -13,6 +12,7 @@ import {
   Image as ImageIconSm,
 } from 'lucide-react'
 import { albumApi } from '../api/albumApi'
+import { apiClient } from '../api/client'
 import type { Album, Photo, AlbumWithPhotos, AlbumParams } from '../api/albumApi'
 import { warehouseStompClient } from '../stomp/client'
 
@@ -23,6 +23,151 @@ interface AlbumRow extends Album {
 }
 
 interface FilePreview { file: File; preview: string }
+
+interface DlProgress {
+  active: boolean
+  label:  string
+  loaded: number
+  total:  number
+  speed:  number   // bytes/sec (rolling average)
+  eta:    number   // seconds remaining
+  mode?:  'bytes' | 'photos'
+}
+const DL_IDLE: DlProgress = { active: false, label: '', loaded: 0, total: 0, speed: 0, eta: 0 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtBytes(n: number): string {
+  if (n < 1024)            return `${n} B`
+  if (n < 1024 * 1024)    return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+function fmtETA(s: number): string {
+  if (!isFinite(s) || s <= 0) return '—'
+  if (s < 60)   return `${Math.ceil(s)} วิ`
+  if (s < 3600) return `${Math.ceil(s / 60)} นาที`
+  return `${(s / 3600).toFixed(1)} ชม.`
+}
+
+// ── DownloadProgressOverlay ────────────────────────────────────────────────────
+
+function DownloadProgressOverlay({ dl }: { dl: DlProgress }) {
+  const pct = dl.total > 0 ? Math.min(100, (dl.loaded / dl.total) * 100) : null
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[2000] flex items-center justify-center p-6">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200 dark:border-zinc-700 p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-xl">
+            <Download size={18} className="text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100 truncate">{dl.label}</p>
+            <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">กำลังดาวน์โหลด...</p>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="w-full h-2 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-3">
+          {pct !== null ? (
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-linear"
+              style={{ width: `${pct}%` }}
+            />
+          ) : (
+            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '40%' }} />
+          )}
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+          {dl.mode === 'photos' ? (
+            <span className="font-mono tabular-nums">
+              {dl.loaded} / {dl.total} รูป
+            </span>
+          ) : (
+            <span className="font-mono tabular-nums">
+              {fmtBytes(dl.loaded)}
+              {dl.total > 0 && <span className="text-slate-300 dark:text-zinc-600"> / {fmtBytes(dl.total)}</span>}
+            </span>
+          )}
+          <div className="flex items-center gap-3">
+            {dl.mode !== 'photos' && dl.speed > 1024 && (
+              <span className="font-mono tabular-nums">{fmtBytes(dl.speed)}/s</span>
+            )}
+            {dl.mode !== 'photos' && dl.eta > 0 && (
+              <span>เหลือ {fmtETA(dl.eta)}</span>
+            )}
+            {pct !== null && (
+              <span className="font-mono tabular-nums text-blue-500">{Math.round(pct)}%</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Shared download helpers ───────────────────────────────────────────────────
+
+async function downloadAlbumZip(
+  albumId: number,
+  albumTitle: string,
+  setDl: (p: DlProgress) => void,
+): Promise<void> {
+  const filename = `${albumTitle || 'album'}.zip`
+
+  const filePath = await window.electronAPI?.showSaveDialog({
+    title: 'บันทึกไฟล์',
+    defaultPath: filename,
+    filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+  })
+  if (!filePath) return  // user cancelled
+
+  const startTime = Date.now()
+  setDl({ active: true, label: filename, loaded: 0, total: 0, speed: 0, eta: 0 })
+  try {
+    const res = await apiClient.get<ArrayBuffer>(`/keeps/albums/${albumId}/download`, {
+      responseType: 'arraybuffer',
+      timeout: 120_000,
+      onDownloadProgress: (ev) => {
+        const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1)
+        const speed   = ev.loaded / elapsed
+        const eta     = speed > 0 && ev.total ? (ev.total - ev.loaded) / speed : 0
+        setDl({ active: true, label: filename, loaded: ev.loaded, total: ev.total ?? 0, speed, eta })
+      },
+    })
+    const data = new Uint8Array(res.data as ArrayBuffer)
+    const result = await window.electronAPI?.writeFile(filePath, data)
+    if (result && !result.ok) throw new Error(result.error)
+  } finally {
+    setDl(DL_IDLE)
+  }
+}
+
+async function downloadSinglePhoto(
+  imageUrl: string,
+  photoId: number,
+  mimeType?: string,
+): Promise<void> {
+  const ext      = mimeType?.split('/')[1] || 'jpg'
+  const filename = `photo-${photoId}.${ext}`
+
+  const filePath = await window.electronAPI?.showSaveDialog({
+    title: 'บันทึกรูปภาพ',
+    defaultPath: filename,
+    filters: [{ name: 'รูปภาพ', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
+  })
+  if (!filePath) return
+
+  const blobUrl = await albumApi.fetchProtectedImage(imageUrl)
+  if (!blobUrl) { alert('ไม่สามารถดาวน์โหลดไฟล์นี้ได้'); return }
+
+  const response  = await fetch(blobUrl)
+  const blob      = await response.blob()
+  const data      = new Uint8Array(await blob.arrayBuffer())
+  const result    = await window.electronAPI?.writeFile(filePath, data)
+  if (result && !result.ok) alert('ไม่สามารถบันทึกไฟล์ได้: ' + result.error)
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -163,10 +308,10 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   const [activeFilter,    setActiveFilter]     = useState('all')
   const [selectedFiles,   setSelectedFiles]    = useState<FilePreview[]>([])
   const [activeMenu,      setActiveMenu]       = useState<number | null>(null)
-  const [downloadingId,   setDownloadingId]    = useState<number | null>(null)
   const [isDeletingId,    setIsDeletingId]     = useState<number | null>(null)
   const [deleteConfirm,   setDeleteConfirm]    = useState<{ id: number; title: string } | null>(null)
   const [formData,        setFormData]         = useState({ ...EMPTY_FORM })
+  const [dlProgress,      setDlProgress]       = useState<DlProgress>(DL_IDLE)
 
   const loadAlbums = useCallback(async () => {
     try {
@@ -307,18 +452,8 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   }
 
   const handleDownload = async (albumId: number, title: string) => {
-    setDownloadingId(albumId); setActiveMenu(null)
-    try {
-      const blob = await albumApi.downloadAlbumBlob(albumId)
-      if (blob.size === 0) return
-      const url  = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url; link.download = `${title || 'album'}.zip`
-      document.body.appendChild(link); link.click()
-      document.body.removeChild(link)
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch {}
-    finally { setDownloadingId(null) }
+    setActiveMenu(null)
+    await downloadAlbumZip(albumId, title, setDlProgress)
   }
 
   return (
@@ -388,10 +523,8 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
               <p className="text-sm font-medium">ไม่พบอัลบั้มที่ตรงกัน</p>
             </div>
           ) : filteredAlbums.map((album, index) => {
-            const isOverlay    = album.isUploading || downloadingId === album.id || isDeletingId === album.id
-            const overlayLabel = downloadingId === album.id ? 'กำลังดาวน์โหลด'
-                               : isDeletingId  === album.id ? 'กำลังลบ'
-                               : 'กำลังอัปโหลด'
+            const isOverlay    = album.isUploading || isDeletingId === album.id
+            const overlayLabel = isDeletingId === album.id ? 'กำลังลบ' : 'กำลังอัปโหลด'
 
             return (
               <div
@@ -691,6 +824,9 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
           </div>
         </div>
       )}
+
+      {/* Download progress overlay */}
+      {dlProgress.active && <DownloadProgressOverlay dl={dlProgress} />}
     </div>
   )
 }
@@ -710,6 +846,7 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
   const [showUploadPanel,   setShowUploadPanel]    = useState(false)
   const [pendingFiles,      setPendingFiles]       = useState<File[]>([])
   const [previews,          setPreviews]           = useState<string[]>([])
+  const [dlProgress,        setDlProgress]         = useState<DlProgress>(DL_IDLE)
 
   const dragStart       = useRef({ x: 0, y: 0 })
   const touchStartX     = useRef(0)
@@ -831,57 +968,65 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
     } catch {}
   }
 
-  const handleDownloadOne = async (e: React.MouseEvent | null, url: string, filename: string) => {
+  const handleDownloadOne = async (e: React.MouseEvent | null, url: string, photoId: number, mimeType?: string) => {
     if (e) e.stopPropagation()
-    try {
-      const blobUrl = await albumApi.fetchProtectedImage(url)
-      if (!blobUrl) { alert('ไม่สามารถดาวน์โหลดไฟล์นี้ได้'); return }
-      const link = document.createElement('a')
-      link.href = blobUrl; link.download = filename || 'download.jpg'
-      document.body.appendChild(link); link.click(); document.body.removeChild(link)
-    } catch { alert('ไม่สามารถดาวน์โหลดไฟล์นี้ได้') }
+    await downloadSinglePhoto(url, photoId, mimeType)
   }
 
   const handleDownloadAll = async () => {
     if (!albumId || !album?.photos?.length) return
-    try {
-      const blob = await albumApi.downloadAlbumBlob(albumId)
-      if (blob.size === 0) { alert('ไม่พบไฟล์ในอัลบั้มนี้'); return }
-      const url  = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url; link.download = `${album.title || 'album'}.zip`
-      document.body.appendChild(link); link.click(); document.body.removeChild(link)
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch { alert('ไม่สามารถดาวน์โหลดอัลบั้มได้') }
+    await downloadAlbumZip(albumId, album.title, setDlProgress)
   }
 
   const handleBulkDownloadZip = async () => {
     if (!album?.photos || selectedIds.length === 0 || !albumId) return
-    if (selectedIds.length === album.photos.length) { await handleDownloadAll(); setIsSelectMode(false); setSelectedIds([]); return }
+    if (selectedIds.length === album.photos.length) {
+      await downloadAlbumZip(albumId, album.title, setDlProgress)
+      setIsSelectMode(false); setSelectedIds([])
+      return
+    }
 
-    const zip        = new JSZip()
     const folderName = album.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()
-    const folder     = zip.folder(folderName)
-    let failedCount  = 0
+    const filename   = `${folderName}_images.zip`
 
+    const filePath = await window.electronAPI?.showSaveDialog({
+      title: 'บันทึกไฟล์',
+      defaultPath: filename,
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+    })
+    if (!filePath) return
+
+    const photosToDownload = album.photos.filter(p => selectedIds.includes(p.id))
+    const zip    = new JSZip()
+    const folder = zip.folder(folderName)
+    let failed   = 0
+
+    setDlProgress({ active: true, label: filename, loaded: 0, total: photosToDownload.length, speed: 0, eta: 0, mode: 'photos' })
     try {
-      for (const photo of album.photos.filter(p => selectedIds.includes(p.id))) {
+      for (let i = 0; i < photosToDownload.length; i++) {
+        const photo = photosToDownload[i]
         try {
           const blobUrl = await albumApi.fetchProtectedImage(photo.fileUrl)
-          if (!blobUrl) { failedCount++; continue }
+          if (!blobUrl) { failed++; continue }
           const response = await fetch(blobUrl)
           const blob     = await response.blob()
           const ext      = photo.mimeType?.split('/')[1] || photo.fileUrl.split('.').pop() || 'jpg'
           folder?.file(`photo_${photo.id}.${ext}`, blob)
-        } catch { failedCount++ }
+        } catch { failed++ }
+        setDlProgress(prev => ({ ...prev, loaded: i + 1 }))
       }
-      const successCount = selectedIds.length - failedCount
+
+      const successCount = photosToDownload.length - failed
       if (successCount === 0) { alert('ไม่สามารถดาวน์โหลดรูปภาพได้'); return }
-      const content = await zip.generateAsync({ type: 'blob' })
-      saveAs(content, `${folderName}_images.zip`)
-      if (failedCount > 0) alert(`ดาวน์โหลดสำเร็จ ${successCount} รูป (ไม่สำเร็จ ${failedCount} รูป)`)
+
+      const content = await zip.generateAsync({ type: 'uint8array' })
+      const result  = await window.electronAPI?.writeFile(filePath, content)
+      if (result && !result.ok) throw new Error(result.error)
+
+      if (failed > 0) alert(`ดาวน์โหลดสำเร็จ ${successCount} รูป (ไม่สำเร็จ ${failed} รูป)`)
       setIsSelectMode(false); setSelectedIds([])
     } catch { alert('เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP') }
+    finally { setDlProgress(DL_IDLE) }
   }
 
   const allSelected = selectedIds.length === (album?.photos?.length ?? 0) && selectedIds.length > 0
@@ -971,7 +1116,7 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors">
                     <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={e => handleDownloadOne(e, photo.fileUrl, `photo-${photo.id}.jpg`)}
+                        onClick={e => handleDownloadOne(e, photo.fileUrl, photo.id, photo.mimeType)}
                         className="w-7 h-7 bg-black/50 hover:bg-blue-500 text-white rounded-full backdrop-blur-sm flex items-center justify-center transition-colors">
                         <Download size={12} />
                       </button>
@@ -1040,7 +1185,7 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
                 { icon: <ZoomIn size={16} />,   action: () => setZoomLevel(p => Math.min(p + 0.5, 4)),     title: 'ซูมเข้า' },
                 { icon: <ZoomOut size={16} />,  action: () => setZoomLevel(p => Math.max(p - 0.5, 0.5)),   title: 'ซูมออก' },
                 { icon: <Maximize size={16} />, action: () => { setZoomLevel(1); setPosition({ x: 0, y: 0 }) }, title: 'รีเซ็ต' },
-                { icon: <Download size={16} />, action: (e: any) => handleDownloadOne(e, current.fileUrl, `photo-${current.id}.jpg`), title: 'ดาวน์โหลด' },
+                { icon: <Download size={16} />, action: (e: any) => handleDownloadOne(e, current.fileUrl, current.id, current.mimeType), title: 'ดาวน์โหลด' },
               ].map((btn, i) => (
                 <button key={i} onClick={btn.action} title={btn.title}
                   className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/25 text-white rounded-xl transition-all active:scale-90">
@@ -1069,6 +1214,9 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
           </div>
         )
       })(), document.body)}
+
+      {/* Download progress overlay */}
+      {dlProgress.active && <DownloadProgressOverlay dl={dlProgress} />}
 
       {/* Upload Panel */}
       {showUploadPanel && (

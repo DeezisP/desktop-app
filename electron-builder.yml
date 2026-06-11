@@ -1,5 +1,5 @@
 appId: com.perfectelt.warehouse
-productName: Perfect Electronic
+productName: Admin Perfect Electronic
 copyright: Copyright © 2024 Perfect Electronic
 
 directories:
@@ -21,7 +21,7 @@ extraResources:
 # ── Windows build ─────────────────────────────────────────────────────────────
 
 protocols:
-  - name: Perfect Electronic
+  - name: Admin Perfect Electronic
     schemes:
       - desktopwarehouse
 
@@ -67,7 +67,7 @@ nsis:
   # Explicit artifact name with dots — prevents the space→hyphen mismatch
   # between latest.yml and the GitHub-normalized download URL (space→dot).
   # Both the .exe and latest.yml path must be identical for auto-updater.
-  artifactName: Perfect.Electronic.Setup.${version}.${ext}
+  artifactName: Admin.Perfect.Electronic.Setup.${version}.${ext}
   oneClick: false
   perMachine: false
   allowElevation: true
@@ -76,7 +76,7 @@ nsis:
   uninstallerIcon: resources/icon.ico
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Perfect Electronic
+  shortcutName: Admin Perfect Electronic
   deleteAppDataOnUninstall: false
   displayLanguageSelector: false
 
