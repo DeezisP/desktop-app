@@ -63,7 +63,7 @@ export default function App() {
             <Route path="dashboard"   element={<Padded><Dashboard /></Padded>} />
             <Route path="import"      element={<ImportPanel />} />
             <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
-            <Route path="web-orders"  element={<Padded><WebOrdersPanel /></Padded>} />
+            <Route path="web-orders"  element={<WebOrdersPanel />} />
             <Route path="packing"     element={<Padded><PackingPanel /></Padded>} />
             <Route path="stock"       element={<Padded><StockListPanel /></Padded>} />
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
