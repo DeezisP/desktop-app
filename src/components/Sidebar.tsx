@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowDownToLine, Package, ScanBarcode, Boxes,
   Tag, History, Settings, LogOut, MessageSquare, Receipt, Images,
+  BarChart2,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useChatStore, selectTotalUnread } from '../store/chatStore'
@@ -33,7 +34,8 @@ function ChatBadge() {
 const SECTIONS: NavSection[] = [
   {
     items: [
-      { to: '/dashboard', label: 'ภาพรวม', icon: <LayoutDashboard size={15} />, end: true },
+      { to: '/dashboard',  label: 'ภาพรวม',           icon: <LayoutDashboard size={15} />, end: true },
+      { to: '/analytics',  label: 'วิเคราะห์เว็บ',    icon: <BarChart2 size={15} /> },
     ],
   },
   {

@@ -5,13 +5,109 @@ import {
   RefreshCw, Clock, CheckCircle2, AlertTriangle,
   Package, Boxes, ArrowDownToLine, ScanBarcode,
   Tag, TrendingUp, Activity, ChevronRight,
-  Layers, TriangleAlert,
+  Layers, TriangleAlert, Globe,
 } from 'lucide-react'
 import { useWarehouseStore } from '../store/warehouseStore'
 import { useAuthStore } from '../store/authStore'
 import { StatusBadge } from '../components/StatusBadge'
 import { Skeleton } from '../components/Skeleton'
+import { analyticsApi } from '../api/analyticsApi'
 import type { QueueStatus, WarehouseProductResponse } from '../types/warehouse'
+
+// ── Analytics types ───────────────────────────────────────────────────────────
+
+interface OverviewData {
+  sessions: number
+  uniqueVisitors: number
+  pageviews: number
+  bounceRate: number
+  sessionsDelta: number
+  uniqueVisitorsDelta: number
+}
+
+interface HealthScore {
+  type: string
+  score: number | null
+}
+
+// ── Analytics helpers ─────────────────────────────────────────────────────────
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return n.toLocaleString('th-TH')
+}
+
+function fmtDelta(d: number | undefined): { label: string; positive: boolean } | null {
+  if (d === undefined || d === null) return null
+  return { label: `${d >= 0 ? '+' : ''}${d.toFixed(1)}%`, positive: d >= 0 }
+}
+
+function scoreStroke(score: number | null): string {
+  if (score === null) return 'stroke-zinc-200 dark:stroke-zinc-700'
+  if (score >= 85) return 'stroke-emerald-500'
+  if (score >= 65) return 'stroke-amber-500'
+  return 'stroke-red-500'
+}
+
+function scoreText(score: number | null): string {
+  if (score === null) return 'text-zinc-400'
+  if (score >= 85) return 'text-emerald-600 dark:text-emerald-400'
+  if (score >= 65) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
+function scoreBorder(score: number | null): string {
+  if (score === null) return 'border-zinc-200 dark:border-zinc-800'
+  if (score >= 85) return 'border-emerald-200 dark:border-emerald-800'
+  if (score >= 65) return 'border-amber-200 dark:border-amber-800'
+  return 'border-red-200 dark:border-red-800'
+}
+
+// ── Analytics sub-components ──────────────────────────────────────────────────
+
+function WebStatCard({ label, value, delta, sub }: { label: string; value: string; delta?: { label: string; positive: boolean } | null; sub?: string }) {
+  return (
+    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-3">
+      <p className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 tabular-nums">{value}</p>
+      <div className="mt-1 flex items-center gap-2 h-3.5">
+        {delta && (
+          <span className={`text-[10px] font-medium ${delta.positive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {delta.label}
+          </span>
+        )}
+        {sub && <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{sub}</span>}
+      </div>
+    </div>
+  )
+}
+
+function WebScoreCard({ type, score }: { type: string; score: number | null }) {
+  const radius = 22
+  const circ = 2 * Math.PI * radius
+  const pct = score !== null ? Math.min(Math.max(score, 0), 100) : 0
+  const offset = circ - (pct / 100) * circ
+
+  return (
+    <div className={`flex items-center gap-3 p-3 rounded-lg border ${scoreBorder(score)} bg-white dark:bg-zinc-900`}>
+      <div className="relative shrink-0">
+        <svg width="50" height="50" className="-rotate-90">
+          <circle cx="25" cy="25" r={radius} fill="none" className="stroke-zinc-100 dark:stroke-zinc-800" strokeWidth="5" />
+          <circle cx="25" cy="25" r={radius} fill="none" className={scoreStroke(score)} strokeWidth="5"
+            strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className={`text-xs font-bold ${scoreText(score)}`}>{score !== null ? score : '—'}</span>
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">{type}</p>
+        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">จาก 100</p>
+      </div>
+    </div>
+  )
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -157,6 +253,35 @@ export function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
+  // ── Website analytics state ─────────────────────────────────────────────────
+  const [webToday, setWebToday] = useState<OverviewData | null>(null)
+  const [webWeek, setWebWeek] = useState<OverviewData | null>(null)
+  const [webMonth, setWebMonth] = useState<OverviewData | null>(null)
+  const [liveUsers, setLiveUsers] = useState<number | null>(null)
+  const [healthScores, setHealthScores] = useState<HealthScore[]>([])
+  const [webLoading, setWebLoading] = useState(true)
+
+  const fetchLive = useCallback(() => {
+    analyticsApi.getRealtime()
+      .then(d => setLiveUsers(d?.activeUsers ?? 0))
+      .catch(() => {})
+  }, [])
+
+  const fetchWebStats = useCallback(() => {
+    setWebLoading(true)
+    Promise.all([
+      analyticsApi.getOverview(1),
+      analyticsApi.getOverview(7),
+      analyticsApi.getOverview(30),
+      analyticsApi.getHealthScores(),
+    ]).then(([d1, d7, d30, hs]) => {
+      setWebToday(d1)
+      setWebWeek(d7)
+      setWebMonth(d30)
+      setHealthScores(hs)
+    }).catch(() => {}).finally(() => setWebLoading(false))
+  }, [])
+
   const refresh = useCallback(async () => {
     setRefreshing(true)
     await Promise.all([loadQueue(), loadOrders(), loadProducts(), loadImportHistory()])
@@ -170,6 +295,13 @@ export function Dashboard() {
     const id = setInterval(refresh, 60_000)
     return () => clearInterval(id)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    fetchWebStats()
+    fetchLive()
+    const liveId = setInterval(fetchLive, 30_000)
+    return () => clearInterval(liveId)
+  }, [fetchWebStats, fetchLive])
 
   const loading = queueLoading || ordersLoading || productsLoading
 
@@ -509,6 +641,87 @@ export function Dashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Website Analytics Summary ──────────────────────────────────────── */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Globe size={14} className="text-zinc-400" />
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">เว็บไซต์</span>
+            <div className="flex items-center gap-1.5 ml-1">
+              <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {liveUsers !== null ? `${liveUsers} คนออนไลน์` : '—'}
+              </span>
+            </div>
+          </div>
+          <Link to="/analytics" className="text-[11px] text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
+            ดูการวิเคราะห์เต็ม <ChevronRight size={11} />
+          </Link>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* Today */}
+          <div>
+            <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">วันนี้</p>
+            <div className="grid grid-cols-3 gap-2">
+              {webLoading ? (
+                <><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /></>
+              ) : (
+                <>
+                  <WebStatCard label="เซสชัน" value={fmtNum(webToday?.sessions ?? 0)} delta={fmtDelta(webToday?.sessionsDelta)} sub="เทียบวานนี้" />
+                  <WebStatCard label="ผู้เยี่ยมชม" value={fmtNum(webToday?.uniqueVisitors ?? 0)} delta={fmtDelta(webToday?.uniqueVisitorsDelta)} sub="เทียบวานนี้" />
+                  <WebStatCard label="การดูหน้า" value={fmtNum(webToday?.pageviews ?? 0)} />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 7 days */}
+          <div>
+            <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">7 วันล่าสุด</p>
+            <div className="grid grid-cols-3 gap-2">
+              {webLoading ? (
+                <><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /></>
+              ) : (
+                <>
+                  <WebStatCard label="เซสชัน" value={fmtNum(webWeek?.sessions ?? 0)} delta={fmtDelta(webWeek?.sessionsDelta)} sub="เทียบ 7 วันก่อน" />
+                  <WebStatCard label="ผู้เยี่ยมชม" value={fmtNum(webWeek?.uniqueVisitors ?? 0)} delta={fmtDelta(webWeek?.uniqueVisitorsDelta)} sub="เทียบ 7 วันก่อน" />
+                  <WebStatCard label="การดูหน้า" value={fmtNum(webWeek?.pageviews ?? 0)} />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 30 days */}
+          <div>
+            <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">30 วันล่าสุด</p>
+            <div className="grid grid-cols-3 gap-2">
+              {webLoading ? (
+                <><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /><Skeleton className="h-16 rounded-lg" /></>
+              ) : (
+                <>
+                  <WebStatCard label="เซสชัน" value={fmtNum(webMonth?.sessions ?? 0)} delta={fmtDelta(webMonth?.sessionsDelta)} sub="เทียบ 30 วันก่อน" />
+                  <WebStatCard label="ผู้เยี่ยมชม" value={fmtNum(webMonth?.uniqueVisitors ?? 0)} delta={fmtDelta(webMonth?.uniqueVisitorsDelta)} sub="เทียบ 30 วันก่อน" />
+                  <WebStatCard label="อัตราการออก" value={`${(webMonth?.bounceRate ?? 0).toFixed(1)}%`} sub="เซสชันหน้าเดียว" />
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Health scores */}
+          {!webLoading && healthScores.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-2">สุขภาพเว็บไซต์</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {healthScores.map(h => (
+                  <WebScoreCard key={h.type} type={h.type} score={h.score} />
+                ))}
+              </div>
             </div>
           )}
         </div>
