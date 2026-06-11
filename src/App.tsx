@@ -4,6 +4,7 @@ import { ErrorBoundary }  from './components/ErrorBoundary'
 import { useAuthStore }   from './store/authStore'
 import { Layout }         from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AppLoader }      from './components/AppLoader'
 import { Login }          from './screens/Login'
 import { StockHistory }   from './screens/StockHistory'
 import Settings           from './screens/Settings'
@@ -36,7 +37,8 @@ function Padded({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize)
-  
+  const isLoading  = useAuthStore((s) => s.isLoading)
+
   // Initialize session on app startup
   useEffect(() => {
     initialize().catch((err: unknown) => {
@@ -50,6 +52,13 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Router>
+        {/*
+          AppLoader sits above the route tree and fades out once auth resolves.
+          The routes render behind it — no route or data is ever visible to the
+          user before the auth check is complete.
+        */}
+        <AppLoader isVisible={isLoading} />
+
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route

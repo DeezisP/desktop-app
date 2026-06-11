@@ -1,14 +1,104 @@
 <!doctype html>
-<html lang="en">
+<html lang="th">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; connect-src 'self' https: wss: ws:;" />
     <title>Perfect ELT Warehouse</title>
-    <script>(function(){try{var t=localStorage.getItem('theme'),p=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';if((t||p)==='dark')document.documentElement.classList.add('dark');}catch(e){}})();</script>
+
+    <!--
+      Step 1 (sync, before any paint):
+      Read the stored theme and apply the `dark` class to <html>.
+      Key must match settingsStore.ts → 'settings.theme'.
+      This prevents a white/light flash for dark-mode users.
+    -->
+    <script>(function(){try{var raw=localStorage.getItem('settings.theme');var mode=raw?JSON.parse(raw):'system';var dark=mode==='dark'||(mode==='system'&&window.matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.classList.toggle('dark',dark);}catch(e){}})();</script>
+
+    <!--
+      Step 2 (sync, after dark class is set):
+      Apply correct background immediately so there is zero white flash,
+      even before Tailwind or React load.
+    -->
+    <style>
+      html           { background-color: #f8fafc; margin: 0; padding: 0; height: 100%; }
+      html.dark      { background-color: #09090b; }
+      body           { margin: 0; padding: 0; height: 100%; background-color: transparent; }
+      #root          { height: 100%; }
+
+      /* Pre-React loader — visible until React mounts (#root becomes non-empty).
+         Uses the adjacent sibling combinator: hides once #root has children. */
+      #root:not(:empty) + #pre-loader { display: none !important; }
+
+      #pre-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #09090b;
+        z-index: 99998;
+        gap: 20px;
+        pointer-events: none;
+        user-select: none;
+      }
+
+      #pre-loader-logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        background: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 28px;
+        font-weight: 700;
+        color: #fff;
+        letter-spacing: -0.5px;
+        box-shadow: 0 0 40px rgba(37,99,235,0.35);
+      }
+
+      #pre-loader-text {
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        color: #f4f4f5;
+        letter-spacing: -0.01em;
+      }
+
+      #pre-loader-sub {
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 12px;
+        color: #71717a;
+        margin-top: -12px;
+      }
+
+      @keyframes pre-spin {
+        to { transform: rotate(360deg); }
+      }
+      #pre-loader-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #27272a;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: pre-spin 0.75s linear infinite;
+        margin-top: 8px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- Shown before React mounts; hidden automatically once #root is non-empty -->
+    <div id="pre-loader" aria-hidden="true">
+      <div id="pre-loader-logo">P</div>
+      <div id="pre-loader-text">Perfect Electronic</div>
+      <div id="pre-loader-sub">Warehouse Management</div>
+      <div id="pre-loader-spinner"></div>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

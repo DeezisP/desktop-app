@@ -5,7 +5,7 @@ import { LogOut, ChevronDown } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { ThemeToggle } from './ThemeToggle'
 import { ToastOverlay } from './Toast'
-import { UpdateBanner } from './UpdateBanner'
+import { UpdateNotification } from './UpdateNotification'
 import { useStomp } from '../hooks/useStomp'
 import { useSettingsStore } from '../store/settingsStore'
 import { useAuth } from '../hooks/useAuth'
@@ -184,7 +184,7 @@ export function Layout() {
       </div>
 
       <ToastOverlay />
-      <UpdateBanner />
+      <UpdateNotification />
     </div>
   )
 }

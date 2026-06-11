@@ -352,6 +352,7 @@ function createWindow() {
 
     // Auto-update check — packaged builds only; dev mode has no installer channel
     if (app.isPackaged) {
+      // Initial check: 3 s after window show (gives React time to mount the listener)
       setTimeout(() => {
         log('[updater] auto-checking for updates on startup')
         autoUpdater.checkForUpdates().catch((err) => {
@@ -359,6 +360,17 @@ function createWindow() {
           sendUpdateStatus({ state: 'error', message: err?.message ?? String(err) })
         })
       }, 3000)
+
+      // Periodic background check every 4 hours
+      const PERIODIC_INTERVAL_MS = 4 * 60 * 60 * 1000
+      setInterval(() => {
+        log('[updater] periodic background check')
+        autoUpdater.checkForUpdates().catch((err) => {
+          log(`[updater] periodic check failed: ${err?.message ?? err}`)
+          // Do not send error status for background checks — would interrupt the user
+        })
+      }, PERIODIC_INTERVAL_MS)
+      log(`[updater] periodic checks scheduled every ${PERIODIC_INTERVAL_MS / 1000 / 60} min`)
     } else {
       log('[updater] skipping startup check — dev mode')
     }
