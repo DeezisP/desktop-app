@@ -2,7 +2,6 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowDownToLine, Package, ScanBarcode, Boxes,
   Tag, History, Settings, LogOut, MessageSquare, Receipt, Images,
-  BarChart2, Radio, Users, Share2, Globe, Monitor, Zap, DollarSign, Activity,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useChatStore, selectTotalUnread } from '../store/chatStore'
@@ -58,20 +57,6 @@ const SECTIONS: NavSection[] = [
     header: 'สื่อ',
     items: [
       { to: '/albums', label: 'อัลบั้มรูป', icon: <Images size={15} /> },
-    ],
-  },
-  {
-    header: 'Analytics',
-    items: [
-      { to: '/analytics',            label: 'Overview',    icon: <BarChart2 size={15} />, end: true },
-      { to: '/analytics/realtime',   label: 'Realtime',    icon: <Radio     size={15} /> },
-      { to: '/analytics/visitors',   label: 'Visitors',    icon: <Users     size={15} /> },
-      { to: '/analytics/sources',    label: 'Sources',     icon: <Share2    size={15} /> },
-      { to: '/analytics/geography',  label: 'Geography',   icon: <Globe     size={15} /> },
-      { to: '/analytics/devices',    label: 'Devices',     icon: <Monitor   size={15} /> },
-      { to: '/analytics/events',     label: 'Events',      icon: <Zap       size={15} /> },
-      { to: '/analytics/revenue',    label: 'Revenue',     icon: <DollarSign size={15} /> },
-      { to: '/analytics/health',     label: 'System',      icon: <Activity  size={15} /> },
     ],
   },
   {

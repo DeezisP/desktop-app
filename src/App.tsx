@@ -19,12 +19,6 @@ import PackingPanel        from './panels/PackingPanel'
 import StockListPanel      from './panels/StockListPanel'
 import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
 import Albums             from './screens/Albums'
-import {
-  AnalyticsOverview, AnalyticsRealtime, AnalyticsVisitors,
-  AnalyticsSources, AnalyticsGeography, AnalyticsDevices,
-  AnalyticsEvents, AnalyticsRevenue, SystemHealth,
-} from './screens/analytics'
-
 // Side-effect import: initialises theme from localStorage before first paint
 import './store/settingsStore'
 
@@ -88,16 +82,6 @@ export default function App() {
             <Route path="albums"      element={<Albums />} />
             <Route path="chat"        element={<Chat />} />
             <Route path="settings"    element={<Settings />} />
-            {/* Analytics */}
-            <Route path="analytics"           element={<Padded><AnalyticsOverview /></Padded>} />
-            <Route path="analytics/realtime"  element={<Padded><AnalyticsRealtime /></Padded>} />
-            <Route path="analytics/visitors"  element={<Padded><AnalyticsVisitors /></Padded>} />
-            <Route path="analytics/sources"   element={<Padded><AnalyticsSources /></Padded>} />
-            <Route path="analytics/geography" element={<Padded><AnalyticsGeography /></Padded>} />
-            <Route path="analytics/devices"   element={<Padded><AnalyticsDevices /></Padded>} />
-            <Route path="analytics/events"    element={<Padded><AnalyticsEvents /></Padded>} />
-            <Route path="analytics/revenue"   element={<Padded><AnalyticsRevenue /></Padded>} />
-            <Route path="analytics/health"    element={<Padded><SystemHealth /></Padded>} />
           </Route>
         </Routes>
       </Router>
