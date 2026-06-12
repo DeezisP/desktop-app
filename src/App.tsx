@@ -11,7 +11,6 @@ import Settings           from './screens/Settings'
 import Chat               from './screens/Chat'
 import { useAppLifecycle } from './hooks/useAppLifecycle'
 import { Dashboard }        from './screens/Dashboard'
-import Analytics            from './screens/Analytics'
 import ImportPanel         from './panels/ImportPanel'
 import OrderListPanel      from './panels/OrderListPanel'
 import WebOrdersPanel      from './panels/WebOrdersPanel'
@@ -73,7 +72,6 @@ export default function App() {
           >
             <Route index              element={<Padded><Dashboard /></Padded>} />
             <Route path="dashboard"   element={<Padded><Dashboard /></Padded>} />
-            <Route path="analytics"   element={<Analytics />} />
             <Route path="import"      element={<ImportPanel />} />
             <Route path="orders"      element={<Padded><OrderListPanel /></Padded>} />
             <Route path="web-orders"  element={<WebOrdersPanel />} />
