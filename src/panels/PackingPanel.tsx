@@ -6,15 +6,28 @@ import WarehouseService, {
   ScanQueueEntry, BackendOrderItem,
 } from '../service/WarehouseService';
 import { useStompContext as useStomp } from '../hooks/useStompContext';
+import { useWarehouseStore } from '../store/warehouseStore';
+import type { ScanQueueResponse, WarehouseOrderItemResponse } from '../types/warehouse';
 import PackingSidebar from './PackingSidebar';
 import PackingQueueList from './PackingQueueList';
 
 export default function PackingPanel() {
   const { connected, subscribe } = useStomp();
 
-  // ── Shared queue state ────────────────────────────────────────────────────
-  const [queue, setQueue]           = useState<ScanQueueEntry[]>([]);
-  const [queueLoading, setQueueLoading] = useState(true);
+  // ── Queue from store (load once, cached across navigation) ────────────────
+  const storeQueue       = useWarehouseStore(s => s.queue)
+  const queueLoading     = useWarehouseStore(s => s.queueLoading)
+  const storeQueueLoaded = useWarehouseStore(s => s.queueLoaded)
+  const storeLoadQueue   = useWarehouseStore(s => s.loadQueue)
+  const applyQueueEvent  = useWarehouseStore(s => s.applyQueueEvent)
+  const upsertQueueEntry = useWarehouseStore(s => s.upsertQueueEntry)
+  const removeQueueEntry = useWarehouseStore(s => s.removeQueueEntry)
+  const storeUpdateItem  = useWarehouseStore(s => s.updateQueueItem)
+  const storeRemoveItem  = useWarehouseStore(s => s.removeQueueItem)
+  const storeAddItem     = useWarehouseStore(s => s.addQueueItem)
+
+  // Cast to ScanQueueEntry[] for child components (structurally identical at runtime)
+  const queue = storeQueue as unknown as ScanQueueEntry[]
 
   // ── Confirm / cancel state ─────────────────────────────────────────────────
   const [confirmingIds, setConfirmingIds] = useState<Set<number>>(new Set());
@@ -22,17 +35,12 @@ export default function PackingPanel() {
   const [cancellingIds, setCancellingIds] = useState<Set<number>>(new Set());
   const [bulkConfirming, setBulkConfirming] = useState(false);
 
-  // ── Loaders ───────────────────────────────────────────────────────────────
-  const loadQueue = useCallback(async () => {
-    setQueueLoading(true);
-    try {
-      const res = await WarehouseService.getQueue(0, 100);
-      setQueue(res.data.data.content);
-    } catch { /* silent */ }
-    finally { setQueueLoading(false); }
-  }, []);
+  // ── Load queue once (cached across navigation) ────────────────────────────
+  const loadQueue = useCallback(() => storeLoadQueue(), [storeLoadQueue]);
 
-  useEffect(() => { loadQueue(); }, [loadQueue]);
+  useEffect(() => {
+    if (!storeQueueLoaded) storeLoadQueue();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── STOMP — live queue updates ────────────────────────────────────────────
   useEffect(() => {
@@ -45,44 +53,15 @@ export default function PackingPanel() {
           orderId?: number;
           item?: BackendOrderItem;
         };
-        if (event.type === 'SCANNED' && event.entry) {
-          setQueue(prev => {
-            const exists = prev.some(q => q.id === event.entry!.id);
-            return exists
-              ? prev.map(q => q.id === event.entry!.id ? event.entry! : q)
-              : [event.entry!, ...prev];
-          });
-        } else if (event.type === 'CONFIRMED' && event.entry) {
-          setQueue(prev => prev.map(q => q.id === event.entry!.id ? event.entry! : q));
-        } else if (event.type === 'CANCELLED' && event.queueId != null) {
-          setQueue(prev => prev.filter(q => q.id !== event.queueId));
-        } else if (event.type === 'ITEM_ADDED' && event.orderId != null && event.item) {
-          const incoming = event.item;
-          setQueue(prev => prev.map(q => {
-            if (!q.order || q.order.id !== event.orderId) return q;
-            const exists = q.order.items.some(i => i.id === incoming.id);
-            return {
-              ...q,
-              order: {
-                ...q.order,
-                items: exists
-                  ? q.order.items.map(i => i.id === incoming.id ? incoming : i)
-                  : [...q.order.items, incoming],
-              },
-            };
-          }));
-        }
+        applyQueueEvent(event as Parameters<typeof applyQueueEvent>[0]);
       } catch {}
     });
-  }, [subscribe]);
+  }, [subscribe, applyQueueEvent]);
 
   // ── Sidebar callback — upsert a scanned / quick-added entry ──────────────
   const handleEntryUpserted = useCallback((entry: ScanQueueEntry) => {
-    setQueue(prev => {
-      const exists = prev.some(q => q.id === entry.id);
-      return exists ? prev.map(q => q.id === entry.id ? entry : q) : [entry, ...prev];
-    });
-  }, []);
+    upsertQueueEntry(entry as unknown as ScanQueueResponse);
+  }, [upsertQueueEntry]);
 
   // ── Queue operations ──────────────────────────────────────────────────────
   const handleConfirm = useCallback(async (queueId: number) => {
@@ -90,25 +69,25 @@ export default function PackingPanel() {
     setConfirmErrors(prev => { const n = { ...prev }; delete n[queueId]; return n; });
     try {
       const res = await WarehouseService.confirmPack(queueId);
-      setQueue(prev => prev.map(q => q.id === queueId ? res.data.data : q));
+      upsertQueueEntry(res.data.data as unknown as ScanQueueResponse);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       setConfirmErrors(prev => ({ ...prev, [queueId]: e.response?.data?.message ?? 'ยืนยันไม่สำเร็จ' }));
     } finally {
       setConfirmingIds(prev => { const n = new Set(prev); n.delete(queueId); return n; });
     }
-  }, []);
+  }, [upsertQueueEntry]);
 
   const handleCancelQueue = useCallback(async (queueId: number) => {
     setCancellingIds(prev => new Set(prev).add(queueId));
     try {
       await WarehouseService.cancelScan(queueId);
-      setQueue(prev => prev.filter(q => q.id !== queueId));
+      removeQueueEntry(queueId);
     } catch { /* silent */ }
     finally {
       setCancellingIds(prev => { const n = new Set(prev); n.delete(queueId); return n; });
     }
-  }, []);
+  }, [removeQueueEntry]);
 
   const handleBulkConfirm = useCallback(async () => {
     const pending = queue.filter(q => q.status === 'WAITING' || q.status === 'PACKING');
@@ -128,7 +107,7 @@ export default function PackingPanel() {
           setConfirmingIds(prev => new Set(prev).add(q.id));
           try {
             const res = await WarehouseService.confirmPack(q.id);
-            setQueue(prev => prev.map(e => e.id === q.id ? res.data.data : e));
+            upsertQueueEntry(res.data.data as unknown as ScanQueueResponse);
           } catch (err: unknown) {
             const e = err as { response?: { data?: { message?: string } } };
             setConfirmErrors(prev => ({ ...prev, [q.id]: e.response?.data?.message ?? 'ยืนยันไม่สำเร็จ' }));
@@ -143,7 +122,7 @@ export default function PackingPanel() {
     } finally {
       setBulkConfirming(false);
     }
-  }, [queue, bulkConfirming]);
+  }, [queue, bulkConfirming, upsertQueueEntry]);
 
   const handleUpdateItem = useCallback(async (
     queueId: number,
@@ -151,20 +130,13 @@ export default function PackingPanel() {
     req: { qty?: number; matchedProductId?: number | null },
   ) => {
     const res = await WarehouseService.updateOrderItem(itemId, req);
-    const updated = res.data.data;
-    setQueue(prev => prev.map(q => {
-      if (q.id !== queueId || !q.order) return q;
-      return { ...q, order: { ...q.order, items: q.order.items.map(i => i.id === itemId ? updated : i) } };
-    }));
-  }, []);
+    storeUpdateItem(queueId, itemId, res.data.data as unknown as WarehouseOrderItemResponse);
+  }, [storeUpdateItem]);
 
   const handleRemoveItem = useCallback(async (queueId: number, itemId: number) => {
     await WarehouseService.deleteOrderItem(itemId);
-    setQueue(prev => prev.map(q => {
-      if (q.id !== queueId || !q.order) return q;
-      return { ...q, order: { ...q.order, items: q.order.items.filter(i => i.id !== itemId) } };
-    }));
-  }, []);
+    storeRemoveItem(queueId, itemId);
+  }, [storeRemoveItem]);
 
   const handleAddItem = useCallback(async (
     queueId: number,
@@ -172,12 +144,8 @@ export default function PackingPanel() {
     req: { matchedProductId: number; qty: number; productName: string },
   ) => {
     const res = await WarehouseService.addOrderItem(orderId, req);
-    const newItem = res.data.data;
-    setQueue(prev => prev.map(q => {
-      if (q.id !== queueId || !q.order) return q;
-      return { ...q, order: { ...q.order, items: [...q.order.items, newItem] } };
-    }));
-  }, []);
+    storeAddItem(queueId, res.data.data as unknown as WarehouseOrderItemResponse);
+  }, [storeAddItem]);
 
   const activeQueue = queue.filter(q => q.status === 'WAITING' || q.status === 'PACKING');
 

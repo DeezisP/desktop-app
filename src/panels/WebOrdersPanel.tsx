@@ -7,6 +7,7 @@ import {
   CheckSquare, Square, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { storeOrdersApi, type StoreOrder } from '../api/warehouse'
+import { useWarehouseStore } from '../store/warehouseStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -108,8 +109,12 @@ function ConfirmModal({ count, onConfirm, onCancel }: { count: number; onConfirm
 export default function WebOrdersPanel() {
   const navigate = useNavigate()
 
-  const [orders, setOrders]             = useState<StoreOrder[]>([])
-  const [loading, setLoading]           = useState(false)
+  const orders            = useWarehouseStore(s => s.webOrders)
+  const loading           = useWarehouseStore(s => s.webOrdersLoading)
+  const loadWebOrders     = useWarehouseStore(s => s.loadWebOrders)
+  const patchWebOrder     = useWarehouseStore(s => s.patchWebOrder)
+  const bulkRemoveOrders  = useWarehouseStore(s => s.bulkRemoveWebOrders)
+
   const [error, setError]               = useState('')
   const [search, setSearch]             = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('PAID')
@@ -118,29 +123,18 @@ export default function WebOrdersPanel() {
   const [showConfirm, setShowConfirm]   = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const data = await storeOrdersApi.getAll()
-      setOrders(data)
-    } catch {
-      setError('โหลดคำสั่งซื้อไม่สำเร็จ')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const loadOrders = useCallback(() => loadWebOrders(true), [loadWebOrders])
 
-  useEffect(() => { loadOrders() }, [loadOrders])
+  useEffect(() => { loadWebOrders() }, [loadWebOrders])
 
   const handleChangeStatus = useCallback(async (orderId: number, newStatus: string) => {
     setChangingId(orderId)
     try {
       await storeOrdersApi.updateStatus(orderId, newStatus)
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o))
+      patchWebOrder(orderId, { status: newStatus })
     } catch { /* silent */ }
     finally { setChangingId(null) }
-  }, [])
+  }, [patchWebOrder])
 
   const toggleSelect = useCallback((id: number) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
@@ -152,11 +146,11 @@ export default function WebOrdersPanel() {
     setShowConfirm(false)
     try {
       await storeOrdersApi.bulkDelete(selectedIds)
-      setOrders(prev => prev.filter(o => !selectedIds.includes(o.id)))
+      bulkRemoveOrders(selectedIds)
       setSelectedIds([])
     } catch { /* silent */ }
     finally { setBulkDeleting(false) }
-  }, [selectedIds])
+  }, [selectedIds, bulkRemoveOrders])
 
   // ── Derived ────────────────────────────────────────────────────────────────
 

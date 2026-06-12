@@ -9,16 +9,18 @@ import {
   ChevronDown, TrendingDown, Minus, Plus, XCircle, Bell, PlusCircle, X, Trash2,
   ClipboardList, CheckCircle2, ChevronRight, Copy, Check,
 } from 'lucide-react';
-import WarehouseService, { type WarehouseProduct } from '../service/WarehouseService';
+import WarehouseService from '../service/WarehouseService';
+import type { WarehouseProductResponse } from '../types/warehouse';
+import { useWarehouseStore } from '../store/warehouseStore';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type VariationEntry = { product: WarehouseProduct; label: string };
+type VariationEntry = { product: WarehouseProductResponse; label: string };
 
 type ProductGroup = {
   key: string;
   parentTitle: string;
-  parent?: WarehouseProduct;
+  parent?: WarehouseProductResponse;
   variations: VariationEntry[];
   isSimple: boolean;
 };
@@ -45,9 +47,9 @@ function splitTitle(title: string): { parent: string; label: string } {
   return { parent: title, label: '' };
 }
 
-type WarnGroup = { parentTitle: string; items: { product: WarehouseProduct; label: string }[] };
+type WarnGroup = { parentTitle: string; items: { product: WarehouseProductResponse; label: string }[] };
 
-function groupForWarning(products: WarehouseProduct[]): WarnGroup[] {
+function groupForWarning(products: WarehouseProductResponse[]): WarnGroup[] {
   const map = new Map<string, WarnGroup>();
   for (const p of products) {
     const { parent, label } = splitTitle(p.title);
@@ -59,8 +61,8 @@ function groupForWarning(products: WarehouseProduct[]): WarnGroup[] {
   return Array.from(map.values());
 }
 
-function groupProducts(products: WarehouseProduct[]): ProductGroup[] {
-  const map = new Map<string, { parent?: WarehouseProduct; variations: VariationEntry[] }>();
+function groupProducts(products: WarehouseProductResponse[]): ProductGroup[] {
+  const map = new Map<string, { parent?: WarehouseProductResponse; variations: VariationEntry[] }>();
   for (const p of products) {
     const idx = p.title.lastIndexOf(' - ');
     if (idx !== -1) {
@@ -113,9 +115,13 @@ interface StockListPanelProps {
 }
 
 export default function StockListPanel({ addTriggerRef }: StockListPanelProps = {}) {
-  const [allProducts, setAllProducts] = useState<WarehouseProduct[]>([]);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState('');
+  const allProducts        = useWarehouseStore(s => s.allProducts)
+  const loading            = useWarehouseStore(s => s.allProductsLoading)
+  const error              = useWarehouseStore(s => s.allProductsError)
+  const loadAllProducts    = useWarehouseStore(s => s.loadAllProducts)
+  const storeAddProduct    = useWarehouseStore(s => s.addProduct)
+  const storeRemoveProduct = useWarehouseStore(s => s.removeProduct)
+  const storeUpdateProduct = useWarehouseStore(s => s.updateProduct)
 
   const [search, setSearch]               = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
@@ -177,11 +183,10 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
         const results = await Promise.all(
           filled.map(v => WarehouseService.createProduct(`${addParent.trim()} - ${v.trim()}`, addStock))
         );
-        const created = results.map(r => r.data.data);
-        setAllProducts(prev => [...prev, ...created].sort((a, b) => a.title.localeCompare(b.title)));
+        results.forEach(r => storeAddProduct(r.data.data as unknown as WarehouseProductResponse));
       } else {
         const res = await WarehouseService.createProduct(addTitle.trim(), addStock);
-        setAllProducts(prev => [...prev, res.data.data].sort((a, b) => a.title.localeCompare(b.title)));
+        storeAddProduct(res.data.data as unknown as WarehouseProductResponse);
       }
       resetAdd();
     } catch {
@@ -192,7 +197,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
   }, [addCanSubmit, addIsVariant, addParent, addVariants, addTitle, addStock, resetAdd]);
 
   // ── Delete ────────────────────────────────────────────────────────────────────
-  const [confirmDelete, setConfirmDelete] = useState<WarehouseProduct | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<WarehouseProductResponse | null>(null);
   const [deleting, setDeleting]           = useState(false);
 
   const handleDeleteProduct = useCallback(async () => {
@@ -200,7 +205,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
     setDeleting(true);
     try {
       await WarehouseService.deleteProduct(confirmDelete.id);
-      setAllProducts(prev => prev.filter(p => p.id !== confirmDelete.id));
+      storeRemoveProduct(confirmDelete.id);
       setConfirmDelete(null);
     } catch {
       /* silent — leave modal open so user can retry */
@@ -217,7 +222,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
     raw: string;
     name: string;
     qty: number;
-    match: WarehouseProduct | null;
+    match: WarehouseProductResponse | null;
     score: number;
   };
 
@@ -229,10 +234,10 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkDone, setBulkDone]         = useState<{ ok: number; fail: number } | null>(null);
 
-  const matchProduct = useCallback((name: string, products: WarehouseProduct[]): { match: WarehouseProduct | null; score: number } => {
+  const matchProduct = useCallback((name: string, products: WarehouseProductResponse[]): { match: WarehouseProductResponse | null; score: number } => {
     const q  = name.toLowerCase().trim();
     const qn = q.replace(/ - /g, ' ');
-    let best: WarehouseProduct | null = null;
+    let best: WarehouseProductResponse | null = null;
     let bestScore = 0;
     for (const p of products) {
       const t  = p.title.toLowerCase();
@@ -275,7 +280,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
       if (delta === 0) { ok++; continue; }
       try {
         const res = await WarehouseService.adjustStock(p.id, delta, 'BULK_UPDATE');
-        setAllProducts(prev => prev.map(x => x.id === p.id ? res.data.data : x));
+        storeUpdateProduct(res.data.data as unknown as WarehouseProductResponse);
         ok++;
       } catch { fail++; }
     }
@@ -301,20 +306,9 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
   const pendingDeltaRef = useRef<Record<number, number>>({});
   const debounceRef     = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await WarehouseService.getAllProducts();
-      setAllProducts(res.data.data);
-    } catch {
-      setError('โหลดข้อมูลสต็อกไม่สำเร็จ');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadAll = useCallback(() => loadAllProducts(true), [loadAllProducts]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { loadAllProducts(); }, [loadAllProducts]);
 
   // ── Grouping + filtering ──────────────────────────────────────────────────────
 
@@ -359,9 +353,9 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
 
   // ── Stock helpers ─────────────────────────────────────────────────────────────
 
-  const displayStock = (p: WarehouseProduct) => p.stock + (pendingOffsets[p.id] ?? 0);
+  const displayStock = (p: WarehouseProductResponse) => p.stock + (pendingOffsets[p.id] ?? 0);
 
-  const queueDelta = (p: WarehouseProduct, delta: number) => {
+  const queueDelta = (p: WarehouseProductResponse, delta: number) => {
     const current = pendingDeltaRef.current[p.id] ?? 0;
     const next    = current + delta;
     if (p.stock + next < 0) return;
@@ -378,8 +372,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
       setSavingIds(prev => new Set(prev).add(p.id));
       try {
         const res     = await WarehouseService.adjustStock(p.id, totalDelta, 'MANUAL_ADJUST');
-        const updated = res.data.data as WarehouseProduct;
-        setAllProducts(prev => prev.map(x => x.id === p.id ? updated : x));
+        storeUpdateProduct(res.data.data as unknown as WarehouseProductResponse);
         setPendingOffsets(prev => { const n = { ...prev }; delete n[p.id]; return n; });
       } catch {
         setSaveErrors(prev => ({ ...prev, [p.id]: 'บันทึกไม่สำเร็จ' }));
@@ -390,7 +383,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
     }, 800);
   };
 
-  const startEdit = (p: WarehouseProduct) => {
+  const startEdit = (p: WarehouseProductResponse) => {
     clearTimeout(debounceRef.current[p.id]);
     delete debounceRef.current[p.id];
     delete pendingDeltaRef.current[p.id];
@@ -400,20 +393,19 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
     setSaveErrors(prev => { const n = { ...prev }; delete n[p.id]; return n; });
   };
 
-  const commitEdit = async (p: WarehouseProduct) => {
+  const commitEdit = async (p: WarehouseProductResponse) => {
     const newStock = parseInt(editVal, 10);
     setEditingId(null);
     if (isNaN(newStock) || newStock === p.stock) return;
     applyDelta(p, newStock - p.stock);
   };
 
-  const applyDelta = async (p: WarehouseProduct, delta: number) => {
+  const applyDelta = async (p: WarehouseProductResponse, delta: number) => {
     if (delta === 0) return;
     setSavingIds(prev => new Set(prev).add(p.id));
     try {
       const res     = await WarehouseService.adjustStock(p.id, delta, 'MANUAL_ADJUST');
-      const updated = res.data.data as WarehouseProduct;
-      setAllProducts(prev => prev.map(x => x.id === p.id ? updated : x));
+      storeUpdateProduct(res.data.data as unknown as WarehouseProductResponse);
     } catch {
       setSaveErrors(prev => ({ ...prev, [p.id]: 'บันทึกไม่สำเร็จ' }));
     } finally {
@@ -450,7 +442,7 @@ export default function StockListPanel({ addTriggerRef }: StockListPanelProps = 
 
   // ── StockCell ─────────────────────────────────────────────────────────────────
 
-  function StockCell({ p }: { p: WarehouseProduct }) {
+  function StockCell({ p }: { p: WarehouseProductResponse }) {
     const qty      = displayStock(p);
     const c        = stockColor(qty);
     const isEdit   = editingId === p.id;

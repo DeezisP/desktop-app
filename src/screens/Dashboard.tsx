@@ -139,15 +139,17 @@ const QUEUE_STATUS_ORDER: QueueStatus[] = ['WAITING', 'PACKING', 'DONE', 'ERROR'
 export function Dashboard() {
   const user = useAuthStore((s) => s.user)
 
-  const queue           = useWarehouseStore((s) => s.queue)
-  const queueLoading    = useWarehouseStore((s) => s.queueLoading)
-  const orders          = useWarehouseStore((s) => s.orders)
-  const ordersLoading   = useWarehouseStore((s) => s.ordersLoading)
-  const ordersTotal     = useWarehouseStore((s) => s.ordersTotal)
-  const products        = useWarehouseStore((s) => s.products)
-  const productsLoading = useWarehouseStore((s) => s.productsLoading)
-  const productsTotal   = useWarehouseStore((s) => s.productsTotal)
-  const importHistory   = useWarehouseStore((s) => s.importHistory)
+  const queue            = useWarehouseStore((s) => s.queue)
+  const queueLoading     = useWarehouseStore((s) => s.queueLoading)
+  const queueLoaded      = useWarehouseStore((s) => s.queueLoaded)
+  const orders           = useWarehouseStore((s) => s.orders)
+  const ordersLoading    = useWarehouseStore((s) => s.ordersLoading)
+  const ordersLoaded     = useWarehouseStore((s) => s.ordersLoaded)
+  const ordersTotal      = useWarehouseStore((s) => s.ordersTotal)
+  const products         = useWarehouseStore((s) => s.products)
+  const productsLoading  = useWarehouseStore((s) => s.productsLoading)
+  const productsTotal    = useWarehouseStore((s) => s.productsTotal)
+  const importHistory    = useWarehouseStore((s) => s.importHistory)
 
   const loadQueue         = useWarehouseStore((s) => s.loadQueue)
   const loadOrders        = useWarehouseStore((s) => s.loadOrders)
@@ -157,17 +159,20 @@ export function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
-  const refresh = useCallback(async () => {
+  const forceRefresh = useCallback(async () => {
     setRefreshing(true)
     await Promise.all([loadQueue(), loadOrders(), loadProducts(), loadImportHistory()])
     setLastRefresh(new Date())
     setRefreshing(false)
   }, [loadQueue, loadOrders, loadProducts, loadImportHistory])
 
-  // Initial load + auto-refresh every 60s
+  // Initial load: skip if data already cached from another panel visit
+  // Auto-refresh queue every 60s (lightweight — STOMP handles real-time but this is a safety net)
   useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, 60_000)
+    if (!queueLoaded || !ordersLoaded) {
+      forceRefresh()
+    }
+    const id = setInterval(() => loadQueue(), 60_000)
     return () => clearInterval(id)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -234,7 +239,7 @@ export function Dashboard() {
           </p>
         </div>
         <button
-          onClick={refresh}
+          onClick={forceRefresh}
           disabled={refreshing}
           className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-40 transition-all"
         >

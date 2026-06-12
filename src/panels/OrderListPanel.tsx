@@ -9,6 +9,7 @@ import WarehouseService, {
   type BackendQueueStatus,
   type WarehouseProduct,
 } from '../service/WarehouseService';
+import { useWarehouseStore } from '../store/warehouseStore';
 
 type StatusFilter = 'ALL' | BackendImportStatus;
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -135,9 +136,31 @@ interface OrderListPanelProps {
 }
 
 export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}) {
-  const [orders, setOrders]             = useState<BackendOrder[]>([]);
+  // ── Store ──────────────────────────────────────────────────────────────────
+  const storeOrders           = useWarehouseStore(s => s.orders)
+  const loading               = useWarehouseStore(s => s.ordersLoading)
+  const storeLoadOrders       = useWarehouseStore(s => s.loadOrders)
+  const storePatchOrder       = useWarehouseStore(s => s.patchOrder)
+  const storeRemoveOrder      = useWarehouseStore(s => s.removeOrder)
+  const storeRemoveOrders     = useWarehouseStore(s => s.removeOrders)
+  const storeBatchPatchItems  = useWarehouseStore(s => s.batchPatchOrderItems)
+  const storeQueueEntries     = useWarehouseStore(s => s.queue)
+
+  // Cast store orders to local type (structurally identical)
+  const orders = storeOrders as unknown as BackendOrder[]
+
+  // ── queueMap derived from store queue (no separate fetch) ─────────────────
+  const queueMap = useMemo(() => {
+    const map = new Map<string, BackendQueueStatus>()
+    for (const entry of storeQueueEntries) {
+      if (entry.status === 'WAITING' || entry.status === 'PACKING') {
+        map.set(entry.orderNumber, entry.status as BackendQueueStatus)
+      }
+    }
+    return map
+  }, [storeQueueEntries])
+
   const [page, setPage]                 = useState(0);
-  const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const [expandedId, setExpandedId]     = useState<number | null>(null);
   const [search, setSearch]               = useState('');
@@ -160,44 +183,29 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
   const [matchedProductNames, setMatchedProductNames] = useState<Map<number, string>>(new Map());
   const [matchAnchor, setMatchAnchor]   = useState<{ top: number; left: number } | null>(null);
   const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [queueMap, setQueueMap]         = useState<Map<string, BackendQueueStatus>>(new Map());
   const [dateFilter, setDateFilter]     = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
-  const loadOrders = useCallback(async (
+  // Rebuild date chips whenever the full (unfiltered) orders load
+  useEffect(() => {
+    if (!dateFilter && orders.length > 0) {
+      const seen = new Set<string>();
+      seen.add(TODAY_STR);
+      for (const o of orders) seen.add(toDateKey(o.createdAt));
+      setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
+    }
+  }, [orders, dateFilter]);
+
+  const loadOrders = useCallback((
     filter: StatusFilter = statusFilter,
     date: string | null = dateFilter,
   ) => {
-    setLoading(true);
     setError('');
-    try {
-      const [ordersRes, queueRes] = await Promise.all([
-        WarehouseService.getOrders(0, 9999, filter === 'ALL' ? undefined : filter, date ?? undefined),
-        WarehouseService.getQueue(0, 500),
-      ]);
-      const pg = ordersRes.data.data;
-      setOrders(pg.content);
-      // Only rebuild the date-chip list when loading without a date filter.
-      // Filtered loads return a subset — overwriting would hide the other chips.
-      if (!date) {
-        const seen = new Set<string>();
-        seen.add(TODAY_STR); // today chip always present
-        for (const o of pg.content) seen.add(toDateKey(o.createdAt));
-        setAvailableDates(Array.from(seen).sort((a, b) => b.localeCompare(a)));
-      }
-      const map = new Map<string, BackendQueueStatus>();
-      for (const entry of queueRes.data.data.content) {
-        if (entry.status === 'WAITING' || entry.status === 'PACKING') {
-          map.set(entry.orderNumber, entry.status);
-        }
-      }
-      setQueueMap(map);
-    } catch {
-      setError('โหลดคำสั่งซื้อไม่สำเร็จ');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, dateFilter]);
+    storeLoadOrders({
+      importStatus: filter === 'ALL' ? undefined : filter,
+      date: date ?? undefined,
+    }).catch(() => setError('โหลดคำสั่งซื้อไม่สำเร็จ'));
+  }, [statusFilter, dateFilter, storeLoadOrders]);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
@@ -221,13 +229,13 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     setDeletingIds(prev => new Set(prev).add(orderId));
     try {
       await WarehouseService.deleteOrder(orderNumber);
-      setOrders(prev => prev.filter(o => o.id !== orderId));
+      storeRemoveOrder(orderNumber);
     } catch {
       /* silent */
     } finally {
       setDeletingIds(prev => { const n = new Set(prev); n.delete(orderId); return n; });
     }
-  }, []);
+  }, [storeRemoveOrder]);
 
   const handleRematchAll = useCallback(async () => {
     setRematching(true);
@@ -251,16 +259,16 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     try {
       await WarehouseService.updateOrderStatus(order.orderNumber, next);
       if (fixedStatus) {
-        setOrders(prev => prev.filter(o => o.id !== order.id));
+        storeRemoveOrder(order.orderNumber);
       } else {
-        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, importStatus: next } : o));
+        storePatchOrder(order.orderNumber, { importStatus: next as import('../types/warehouse').ImportStatus });
       }
     } catch {
       /* silent */
     } finally {
       setTogglingIds(prev => { const n = new Set(prev); n.delete(order.id); return n; });
     }
-  }, [fixedStatus]);
+  }, [fixedStatus, storeRemoveOrder, storePatchOrder]);
 
   const handleCopy = useCallback((orderNumber: string, orderId: number) => {
     navigator.clipboard.writeText(orderNumber);
@@ -273,21 +281,21 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     setSavingShipping(prev => new Set(prev).add(order.id));
     try {
       await WarehouseService.updateOrderShipping(order.orderNumber, val);
-      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, shippingMethod: val || null } : o));
+      storePatchOrder(order.orderNumber, { shippingMethod: val || null });
       setEditingShipping(null);
     } catch { /* silent */ }
     finally { setSavingShipping(prev => { const n = new Set(prev); n.delete(order.id); return n; }); }
-  }, [shippingDraft]);
+  }, [shippingDraft, storePatchOrder]);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     setBulkDeleting(true);
     const targets = orders.filter(o => selectedIds.has(o.id));
     await Promise.allSettled(targets.map(o => WarehouseService.deleteOrder(o.orderNumber)));
-    setOrders(prev => prev.filter(o => !selectedIds.has(o.id)));
+    storeRemoveOrders(targets.map(o => o.orderNumber));
     setSelectedIds(new Set());
     setBulkDeleting(false);
-  }, [orders, selectedIds]);
+  }, [orders, selectedIds, storeRemoveOrders]);
 
   const runMatchSearch = useCallback((groupKey: string, query: string) => {
     if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
@@ -333,11 +341,11 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
         .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof WarehouseService.updateOrderItem>>> => r.status === 'fulfilled')
         .map(r => r.value.data.data);
       if (cleared.length > 0) {
-        setOrders(prev => prev.map(o => ({ ...o, items: o.items.map(i => cleared.find(x => x.id === i.id) ?? i) })));
+        storeBatchPatchItems(cleared as unknown as (Partial<import('../types/warehouse').WarehouseOrderItemResponse> & { id: number })[]);
       }
       setMatchedProductNames(prev => { const n = new Map(prev); merged.ids.forEach(id => n.delete(id)); return n; });
     } catch { /* silent */ }
-  }, []);
+  }, [storeBatchPatchItems]);
 
   const handleSelectMatch = useCallback(async (merged: MergedItem, product: WarehouseProduct) => {
     handleCloseMatch();
@@ -349,11 +357,11 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
         .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof WarehouseService.updateOrderItem>>> => r.status === 'fulfilled')
         .map(r => r.value.data.data);
       if (matched.length > 0) {
-        setOrders(prev => prev.map(o => ({ ...o, items: o.items.map(i => matched.find(x => x.id === i.id) ?? i) })));
+        storeBatchPatchItems(matched as unknown as (Partial<import('../types/warehouse').WarehouseOrderItemResponse> & { id: number })[]);
       }
       setMatchedProductNames(prev => { const n = new Map(prev); merged.ids.forEach(id => n.set(id, product.title)); return n; });
     } catch { /* silent */ }
-  }, [handleCloseMatch]);
+  }, [handleCloseMatch, storeBatchPatchItems]);
 
   // ── Derived state ─────────────────────────────────────────────────────────────
 
