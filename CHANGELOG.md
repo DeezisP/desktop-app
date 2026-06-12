@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.15.0 — 2026-06-12
+
+### Maintenance
+
+- **Analytics system permanently removed.** The analytics dashboard (Overview, Realtime, Visitors, Sources, Geography, Devices, Events, Revenue, System Health) has been removed from the desktop app.
+- Removed `recharts` chart library — reduces bundle size by ~240 kB gzipped.
+- Removed 9 analytics screen components and `analyticsApi` module.
+- Removed 9 Analytics entries from the sidebar navigation.
+- Reduced backend API load: no more analytics polling or realtime WebSocket subscriptions.
+- General code cleanup and dead-import removal.
+
 ## v2.13.0 — 2026-06-12
 
 ### Maintenance
