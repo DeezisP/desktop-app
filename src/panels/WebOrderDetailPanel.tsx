@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { storeOrdersApi, type StoreOrder, type StoreOrderItem } from '../api/warehouse'
+import { Skeleton, CardSkeleton } from '../components/Skeleton'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -277,10 +278,56 @@ export default function WebOrderDetailPanel() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-slate-400">
-          <RefreshCw size={28} className="animate-spin text-blue-500" />
-          <p className="text-sm">กำลังโหลด...</p>
+      <div className="min-h-screen bg-slate-100 dark:bg-zinc-950">
+        <div className="bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-10">
+          <div className="px-6 py-3 flex items-center gap-4">
+            <Skeleton className="h-4 w-10" />
+            <div className="h-4 w-px bg-slate-200 dark:bg-zinc-700" />
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-7 w-28 rounded-full ml-1" />
+          </div>
+        </div>
+        <div className="px-6 flex gap-4 py-4 items-start">
+          <div className="flex-1 min-w-0 space-y-4">
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+                <Skeleton className="h-7 w-32 rounded-full" />
+              </div>
+              <div className="grid grid-cols-3 divide-x divide-slate-100 dark:divide-zinc-800">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="px-5 py-4 space-y-2">
+                    <Skeleton className="h-2.5 w-16" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg p-5 space-y-3">
+              <Skeleton className="h-4 w-44" />
+              <Skeleton className="h-10 w-full rounded-lg" />
+            </div>
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+                <Skeleton className="h-4 w-36" />
+              </div>
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex gap-4 py-2">
+                    <Skeleton className="h-4 flex-1" />
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-16 text-center" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="w-80 flex-shrink-0 space-y-4">
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
         </div>
       </div>
     )

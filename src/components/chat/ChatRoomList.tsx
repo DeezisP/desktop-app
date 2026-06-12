@@ -1,6 +1,7 @@
 import { memo } from 'react'
-import { Users, User, Loader2, Trash2 } from 'lucide-react'
+import { Users, User, Trash2 } from 'lucide-react'
 import { useChatStore, selectSortedRooms } from '../../store/chatStore'
+import { Skeleton } from '../Skeleton'
 import type { ChatRoom } from '../../types/chat'
 
 interface Props {
@@ -118,8 +119,21 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom, onDeleteR
 
   if (loading && rooms.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 size={20} className="animate-spin text-zinc-400" />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2.5 px-3 py-2.5" style={{ opacity: 1 - i * 0.12 }}>
+              <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-2.5 w-10 flex-shrink-0" />
+                </div>
+                <Skeleton className="h-2.5 w-36" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }

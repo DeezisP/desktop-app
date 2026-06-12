@@ -302,6 +302,7 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   const titleInputRef = useRef<Record<number, HTMLInputElement | null>>({})
 
   const [albums,          setAlbums]          = useState<AlbumRow[]>([])
+  const [albumsLoading,   setAlbumsLoading]    = useState(true)
   const [showCreateForm,  setShowCreateForm]   = useState(false)
   const [albumTitle,      setAlbumTitle]       = useState('')
   const [searchQuery,     setSearchQuery]      = useState('')
@@ -326,6 +327,7 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
         }))
       })
     } catch {}
+    finally { setAlbumsLoading(false) }
   }, [])
 
   useEffect(() => { loadAlbums() }, [loadAlbums])
@@ -517,7 +519,24 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-6">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-4 sm:gap-5">
-          {filteredAlbums.length === 0 ? (
+          {albumsLoading && filteredAlbums.length === 0 ? (
+            Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden animate-pulse" style={{ opacity: 1 - i * 0.08 }}>
+                <div className="aspect-[4/3] bg-slate-100 dark:bg-zinc-800" />
+                <div className="p-4 space-y-2.5">
+                  <div className="h-4 bg-slate-100 dark:bg-zinc-800 rounded w-3/4" />
+                  <div className="h-3 bg-slate-100 dark:bg-zinc-800 rounded w-1/3" />
+                  <div className="h-8 bg-slate-100 dark:bg-zinc-800 rounded" />
+                  <div className="h-12 bg-slate-100 dark:bg-zinc-800 rounded" />
+                  <div className="flex gap-1.5">
+                    {Array.from({ length: 4 }).map((_, j) => (
+                      <div key={j} className="h-6 w-14 bg-slate-100 dark:bg-zinc-800 rounded-lg" />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : filteredAlbums.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-24 text-slate-400 dark:text-zinc-600">
               <Package size={44} className="mb-3 opacity-30" />
               <p className="text-sm font-medium">ไม่พบอัลบั้มที่ตรงกัน</p>

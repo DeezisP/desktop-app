@@ -8,6 +8,7 @@ import {
 import WarehouseService, { type WarehouseProduct, type OrderImport, type BackendOrder } from '../service/WarehouseService';
 import { encodeCode128B, totalModules } from '../service/code128';
 import html2canvas from 'html2canvas';
+import { CardSkeleton } from '../components/Skeleton';
 
 const SENDER_NAME = 'Perfect Electronic';
 const SENDER_PHONE = '088-683-7697';
@@ -901,10 +902,17 @@ export default function BarcodeLabelPanel() {
           }
         </div>
 
+        {savedLabelsLoading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}
+          </div>
+        )}
+
         {!savedLabelsLoading && savedLabels.length === 0 && (
           <p className="text-sm text-zinc-400 italic py-4 text-center">ยังไม่มีรายการที่บันทึก</p>
         )}
 
+        {!savedLabelsLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {savedLabels.map(label => (
             <div key={label.id} className="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
@@ -941,6 +949,7 @@ export default function BarcodeLabelPanel() {
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* ── Modals ── */}

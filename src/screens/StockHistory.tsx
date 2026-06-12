@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, type FormEvent } from 'react'
 import { Search, RefreshCw } from 'lucide-react'
 import WarehouseService, { type StockLogEntry } from '../service/WarehouseService'
+import { TableSkeleton } from '../components/Skeleton'
 
 const TODAY_STR = new Date().toISOString().slice(0, 10)
 
@@ -135,7 +136,9 @@ export function StockHistory() {
       {/* Table */}
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm">
         {loading ? (
-          <div className="flex h-32 items-center justify-center text-zinc-400 text-sm">กำลังโหลด…</div>
+          <div className="p-4">
+            <TableSkeleton rows={7} cols={6} />
+          </div>
         ) : logs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2 text-zinc-400 dark:text-zinc-500">
             <p className="text-sm font-medium">ไม่มีการเปลี่ยนแปลงสต็อกในวันนี้</p>

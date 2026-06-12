@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { productsApi } from '../api/warehouse'
 import type { WarehouseProductResponse } from '../types/warehouse'
+import { TableSkeleton } from '../components/Skeleton'
 
 interface CountRow {
   product: WarehouseProductResponse
@@ -111,7 +112,9 @@ export function StockCount() {
 
       <div className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
         {loading ? (
-          <div className="flex h-32 items-center justify-center text-slate-500 text-sm">Loading products…</div>
+          <div className="p-4">
+            <TableSkeleton rows={8} cols={6} />
+          </div>
         ) : (
           <div className="overflow-y-auto max-h-[calc(100vh-240px)]">
             <table className="w-full text-sm">
