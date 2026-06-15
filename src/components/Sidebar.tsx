@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowDownToLine, Package, ScanBarcode, Boxes,
-  Tag, History, Settings, LogOut, MessageSquare, Receipt, Images,
+  Tag, History, Settings, LogOut, MessageSquare, Receipt, Images, Users,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useChatStore, selectTotalUnread } from '../store/chatStore'
@@ -63,6 +63,12 @@ const SECTIONS: NavSection[] = [
     header: 'การสื่อสาร',
     items: [
       { to: '/chat', label: 'แชท', icon: <MessageSquare size={15} />, badge: <ChatBadge /> },
+    ],
+  },
+  {
+    header: 'ผู้ดูแลระบบ',
+    items: [
+      { to: '/users', label: 'ผู้ใช้งาน', icon: <Users size={15} /> },
     ],
   },
 ]

@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.18.0 — 2026-06-15
+
+### Features
+
+- **User management screen.** New "ผู้ใช้งาน" entry under sidebar section "ผู้ดูแลระบบ" at `/users`.
+  - Lists all registered users with name, email, ID, and role badge.
+  - Search/filter by name, email, or username.
+  - Sort by ID ascending/descending.
+  - Delete user with a two-step confirm (prevents accidental removal).
+  - "ออเดอร์" button opens a right-side drawer showing all orders for that user with status, total, items, and shipping address.
+- **Backend:** Added `DELETE /user/admin/{userId}` and `GET /user/admin/{userId}/orders` endpoints (admin-only, Spring Security protected).
+
 ## v2.15.0 — 2026-06-12
 
 ### Maintenance

@@ -19,6 +19,7 @@ import PackingPanel        from './panels/PackingPanel'
 import StockListPanel      from './panels/StockListPanel'
 import BarcodeLabelPanel   from './panels/BarcodeLabelPanel'
 import Albums             from './screens/Albums'
+import Users              from './screens/Users'
 // Side-effect import: initialises theme from localStorage before first paint
 import './store/settingsStore'
 
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="barcode"     element={<Padded><BarcodeLabelPanel /></Padded>} />
             <Route path="history"     element={<Padded><StockHistory /></Padded>} />
             <Route path="albums"      element={<Albums />} />
+            <Route path="users"       element={<Padded><Users /></Padded>} />
             <Route path="chat"        element={<Chat />} />
             <Route path="settings"    element={<Settings />} />
           </Route>
