@@ -30,6 +30,25 @@ class WarehouseStompClient {
   // Generic topic subscriptions (chat and other modules)
   private genericSubs: Map<string, { handler: GenericMessageHandler; sub: StompSubscription | null }> = new Map()
 
+  // Called when the server rejects the STOMP CONNECT frame due to an expired JWT.
+  // Should trigger an HTTP-level token refresh so useStomp reconnects with a fresh token.
+  private authRefresher: (() => Promise<void>) | null = null
+  private authRefreshing = false
+
+  setAuthRefresher(fn: () => Promise<void>) {
+    this.authRefresher = fn
+  }
+
+  private async triggerAuthRefresh() {
+    if (this.authRefreshing || !this.authRefresher) return
+    this.authRefreshing = true
+    try {
+      await this.authRefresher()
+    } finally {
+      this.authRefreshing = false
+    }
+  }
+
   connect(token: string) {
     if (this.connected && this.currentToken === token) return
     this.disconnect()
@@ -68,7 +87,17 @@ class WarehouseStompClient {
         this.notifyConnState(false)
       },
       onStompError: (frame) => {
-        console.error('[stomp] STOMP error:', frame.headers['message'], frame.body)
+        const msg = frame.headers['message'] ?? ''
+        console.error('[stomp] STOMP error:', msg, frame.body)
+        // Spring rejects the STOMP CONNECT frame with this message when the JWT
+        // is expired. The auto-reconnect loop will keep failing because no HTTP
+        // request runs to trigger the axios refresh interceptor. Trigger a lightweight
+        // HTTP call here so the interceptor can silently refresh the token; when
+        // useStomp sees the new token it calls connect(newToken) which replaces this
+        // client and reconnects cleanly.
+        if (msg.includes('ExecutorSubscribableChannel')) {
+          void this.triggerAuthRefresh()
+        }
       },
       onWebSocketError: (evt) => {
         this.reconnectCount++

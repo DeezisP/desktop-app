@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { warehouseStompClient } from '../stomp/client'
 import { useWarehouseStore } from '../store/warehouseStore'
 import { useAuthStore } from '../store/authStore'
+import { authApi } from '../api/auth'
 import { sounds, sendDesktopNotification } from '../service/sounds'
 import { toast } from '../components/Toast'
 
@@ -16,6 +17,16 @@ export function useStomp() {
 
   // Track previous connection state to detect transitions (not just current state)
   const prevConnectedRef = useRef<boolean | null>(null)
+
+  // Register the auth refresher once. When the STOMP CONNECT frame is rejected
+  // due to an expired JWT, this makes a lightweight HTTP call so the axios
+  // interceptor silently refreshes the token. Once the token updates in Zustand,
+  // the effect below fires and reconnects STOMP with the fresh token.
+  useEffect(() => {
+    warehouseStompClient.setAuthRefresher(() =>
+      authApi.getMe().then(() => {}).catch(() => {}),
+    )
+  }, [])
 
   useEffect(() => {
     return warehouseStompClient.onConnectionChange((connected) => {
