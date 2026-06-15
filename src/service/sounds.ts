@@ -6,13 +6,13 @@ function ctx(): AudioContext {
   if (!audioCtx || audioCtx.state === 'closed') {
     audioCtx = new AudioContext()
   }
-  // AudioContext can be suspended until user interaction
   if (audioCtx.state === 'suspended') {
     audioCtx.resume().catch(() => {})
   }
   return audioCtx
 }
 
+// Musical tone: decaying envelope — used for chimes, pings, clicks.
 function tone(
   frequency: number,
   duration: number,
@@ -23,7 +23,7 @@ function tone(
   if (!useSettingsStore.getState().soundEnabled) return
   setTimeout(() => {
     try {
-      const ac = ctx()
+      const ac   = ctx()
       const osc  = ac.createOscillator()
       const gain = ac.createGain()
       osc.type = type
@@ -40,22 +40,64 @@ function tone(
   }, delayMs)
 }
 
+// Scanner / buzzer beep: flat-top envelope (instant rise → sustain → sharp fall).
+// A low-pass filter at 2.5× the fundamental strips harsh upper harmonics and
+// gives the warm "piezo buzzer" timbre that real barcode scanners produce.
+function beep(
+  frequency: number,
+  duration: number,
+  volume  = 0.2,
+  delayMs = 0,
+) {
+  if (!useSettingsStore.getState().soundEnabled) return
+  setTimeout(() => {
+    try {
+      const ac     = ctx()
+      const osc    = ac.createOscillator()
+      const filter = ac.createBiquadFilter()
+      const gain   = ac.createGain()
+
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(frequency, ac.currentTime)
+
+      filter.type = 'lowpass'
+      filter.frequency.setValueAtTime(frequency * 2.5, ac.currentTime)
+      filter.Q.setValueAtTime(0.7, ac.currentTime)
+
+      const t = ac.currentTime
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(volume, t + 0.002)       // 2 ms attack
+      gain.gain.setValueAtTime(volume, t + duration - 0.008)     // sustain
+      gain.gain.linearRampToValueAtTime(0, t + duration)         // 8 ms release
+
+      osc.connect(filter)
+      filter.connect(gain)
+      gain.connect(ac.destination)
+      osc.start(t)
+      osc.stop(t + duration + 0.015)
+    } catch {
+      // AudioContext unavailable in headless/test environments
+    }
+  }, delayMs)
+}
+
 export const sounds = {
-  /** Short clean beep on successful barcode scan */
+  // ~1900 Hz, 80 ms flat-top — matches the piezo beep of Honeywell/Zebra scanners
   scanSuccess() {
-    tone(880, 0.09, 'sine', 0.28)
+    beep(1900, 0.08, 0.18)
   },
 
-  /** Double low buzz on scan error or held barcode */
+  // Descending two-tone buzz (380 Hz → 220 Hz) — universally recognisable as
+  // "wrong / not found"; clearly distinct from the high-pitched success beep
   scanError() {
-    tone(280, 0.1, 'square', 0.18)
-    tone(230, 0.14, 'square', 0.18, 120)
+    beep(380, 0.14, 0.3)
+    beep(220, 0.22, 0.3, 150)
   },
 
-  /** Double quick beep — already-packed / duplicate scan (success variant) */
+  // Two quick beeps at scanner pitch — scanner language for "already scanned"
   scanDuplicate() {
-    tone(880, 0.07, 'sine', 0.22)
-    tone(880, 0.07, 'sine', 0.22, 110)
+    beep(1900, 0.065, 0.15)
+    beep(1900, 0.065, 0.15, 110)
   },
 
   /** Ascending two-note chime on confirm / pack complete */
