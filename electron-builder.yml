@@ -68,6 +68,11 @@ nsis:
   # between latest.yml and the GitHub-normalized download URL (space→dot).
   # Both the .exe and latest.yml path must be identical for auto-updater.
   artifactName: Admin.Perfect.Electronic.Setup.${version}.${ext}
+  # Custom init hook: removes stale uninstall registry keys whose recorded
+  # InstallLocation no longer exists on disk. Prevents the installer from
+  # trying to run a missing old uninstaller and showing:
+  #   "Failed to uninstall old application files.: 2" (ERROR_FILE_NOT_FOUND)
+  include: resources/installer.nsh
   oneClick: false
   perMachine: false
   allowElevation: true
