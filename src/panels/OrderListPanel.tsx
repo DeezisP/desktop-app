@@ -318,11 +318,11 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     runMatchSearch(groupKey, query);
   }, [runMatchSearch]);
 
-  const handleOpenMatch = useCallback((merged: MergedItem, e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleOpenMatch = useCallback((merged: MergedItem, e: React.MouseEvent<HTMLButtonElement | HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - 260);
     setMatchAnchor({ top: rect.bottom + 4, left });
-    const initial = merged.productName?.trim() ?? '';
+    const initial = [merged.productName?.trim(), merged.variant?.trim()].filter(Boolean).join(' ');
     setMatchSearch({ groupKey: merged.key, itemIds: merged.ids, query: initial, results: [], loading: !!initial });
     if (initial) runMatchSearch(merged.key, initial);
   }, [runMatchSearch]);
@@ -883,25 +883,32 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
                                   เลือกสินค้า
                                 </button>
                               ) : (
-                                <div className="inline-flex items-center gap-1.5">
-                                  {mc && (
-                                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${mc.text}`}>
-                                      <span className={`w-1.5 h-1.5 rounded-full ${mc.dot}`} />
-                                      {mc.label}
+                                <div className="flex flex-col items-start gap-0.5">
+                                  <div className="inline-flex items-center gap-1.5">
+                                    {mc && (
+                                      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${mc.text}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${mc.dot}`} />
+                                        {mc.label}
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={e => handleOpenMatch(merged, e)}
+                                      title="เปลี่ยนสินค้า"
+                                      className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors px-1">
+                                      แก้
+                                    </button>
+                                    <button
+                                      onClick={() => handleClearMatch(merged)}
+                                      title="ล้างการจับคู่"
+                                      className="text-[10px] text-zinc-400 hover:text-red-500 transition-colors leading-none">
+                                      ×
+                                    </button>
+                                  </div>
+                                  {merged.productStock !== null && (
+                                    <span className={`text-[9px] leading-none ${merged.productStock > 0 ? 'text-zinc-400 dark:text-zinc-500' : 'text-red-400 dark:text-red-500 font-semibold'}`}>
+                                      {merged.productStock > 0 ? `สต็อก ${merged.productStock}` : 'หมดสต็อก'}
                                     </span>
                                   )}
-                                  <button
-                                    onClick={e => handleOpenMatch(merged, e)}
-                                    title="เปลี่ยนสินค้า"
-                                    className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors px-1">
-                                    แก้
-                                  </button>
-                                  <button
-                                    onClick={() => handleClearMatch(merged)}
-                                    title="ล้างการจับคู่"
-                                    className="text-[10px] text-zinc-400 hover:text-red-500 transition-colors leading-none">
-                                    ×
-                                  </button>
                                 </div>
                               )}
                             </td>
