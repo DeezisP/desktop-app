@@ -269,6 +269,25 @@ export const useAuthStore = create<AuthState>((set, get) => {
     () => get().token,
     (t) => get()._setToken(t),
     () => get().logout(),
+    // clearAuth: clears local state without a server call; used by the refresh
+    // interceptor to avoid re-entering the interceptor (deadlock) when the
+    // refresh token is rejected while isRefreshing is still true.
+    () => {
+      eAPI()?.clearTokens()
+      sessionStorage.removeItem('access_token')
+      sessionStorage.removeItem('refresh_token')
+      setStoredRefreshToken(null)
+      set({ user: null, token: null, isAuthenticated: false, pendingOtp: null })
+    },
+    // saveRefreshToken: persists the new refresh token issued by the server during
+    // a silent refresh so the session survives past the access-token TTL on restart.
+    (rt) => {
+      if (eAPI()) {
+        eAPI()!.saveToken('refresh_token', rt)
+      } else {
+        sessionStorage.setItem('refresh_token', rt)
+      }
+    },
   )
 
   return store

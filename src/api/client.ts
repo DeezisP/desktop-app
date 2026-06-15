@@ -15,16 +15,25 @@ export const apiClient = axios.create({
 let _getToken: (() => string | null) | null = null
 let _setToken: ((t: string) => void) | null = null
 let _doLogout: (() => Promise<void>) | null = null
+// Clears local auth state without a server call — used by the refresh interceptor
+// to avoid re-entering the interceptor while isRefreshing is still true (deadlock).
+let _clearAuth: (() => void) | null = null
+// Persists a new refresh token to storage after a successful silent refresh.
+let _saveRefreshToken: ((t: string) => void) | null = null
 let _refreshToken: string | null = null
 
 export function registerAuthAccessors(
   getToken: () => string | null,
   setToken: (t: string) => void,
   doLogout: () => Promise<void>,
+  clearAuth?: () => void,
+  saveRefreshToken?: (t: string) => void,
 ) {
-  _getToken  = getToken
-  _setToken  = setToken
-  _doLogout  = doLogout
+  _getToken         = getToken
+  _setToken         = setToken
+  _doLogout         = doLogout
+  _clearAuth        = clearAuth ?? null
+  _saveRefreshToken = saveRefreshToken ?? null
 }
 
 /** Called by authStore whenever a refresh token is obtained or cleared. */
@@ -86,17 +95,28 @@ apiClient.interceptors.response.use(
       )
       const newToken = data.token
       _setToken?.(newToken)
-      if (data.refreshToken) _refreshToken = data.refreshToken
+      if (data.refreshToken) {
+        _refreshToken = data.refreshToken
+        _saveRefreshToken?.(data.refreshToken)
+      }
       drainQueue(null, newToken)
       original.headers.Authorization = `Bearer ${newToken}`
       return apiClient(original)
     } catch (refreshErr) {
       drainQueue(refreshErr, null)
-      // Only logout when the refresh endpoint explicitly rejects the token (401/403).
+      // Only clear session when the refresh endpoint explicitly rejects (401/403).
       // Network errors, timeouts, and 5xx responses are transient — keep the session.
       const status = (refreshErr as { response?: { status?: number } })?.response?.status
       if (status === 401 || status === 403) {
-        await _doLogout?.()
+        // Use _clearAuth (no server call) rather than _doLogout here.
+        // _doLogout calls authApi.logout() which goes back through this interceptor
+        // while isRefreshing is still true — that queues the logout request in
+        // failedQueue which has already been drained, causing a permanent deadlock.
+        if (_clearAuth) {
+          _clearAuth()
+        } else {
+          await _doLogout?.()
+        }
       }
       return Promise.reject(refreshErr)
     } finally {
