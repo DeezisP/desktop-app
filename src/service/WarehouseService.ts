@@ -53,6 +53,7 @@ export interface BackendOrder {
   importStatus: BackendImportStatus;
   importedAt: string | null;
   createdAt: string;
+  labelPrinted: boolean;
   items: BackendOrderItem[];
 }
 export interface ScanQueueEntry {
@@ -208,6 +209,12 @@ const WarehouseService = {
   deleteOrder: (orderNumber: string) =>
     apiClient.delete<BackendApiResponse<void>>(
       `${API_BASE}/orders/${encodeURIComponent(orderNumber)}`),
+
+  markLabelPrinted: (orderNumber: string, printed = true) =>
+    apiClient.patch<BackendApiResponse<BackendOrder>>(
+      `${API_BASE}/orders/${encodeURIComponent(orderNumber)}/printed`,
+      null,
+      { params: { printed } }),
 
   rematchAll: () =>
     apiClient.post<BackendApiResponse<number>>(`${API_BASE}/orders/rematch`),
