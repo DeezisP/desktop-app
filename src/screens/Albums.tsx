@@ -34,6 +34,7 @@ interface DlProgress {
   speed:  number   // bytes/sec (rolling average)
   eta:    number   // seconds remaining
   mode?:  'bytes' | 'photos'
+  done?:  boolean
 }
 const DL_IDLE: DlProgress = { active: false, label: '', loaded: 0, total: 0, speed: 0, eta: 0 }
 
@@ -58,52 +59,64 @@ function DownloadProgressOverlay({ dl }: { dl: DlProgress }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[2000] flex items-center justify-center p-6">
       <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200 dark:border-zinc-700 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-xl">
-            <Download size={18} className="text-blue-600 dark:text-blue-400" />
+        {dl.done ? (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <CheckCircle2 size={26} className="text-emerald-500" />
+            </div>
+            <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100">ดาวน์โหลดสำเร็จ!</p>
+            <p className="text-[11px] text-slate-400 dark:text-zinc-500 truncate max-w-full">{dl.label}</p>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100 truncate">{dl.label}</p>
-            <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">กำลังดาวน์โหลด...</p>
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 rounded-xl">
+                <Download size={18} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100 truncate">{dl.label}</p>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">กำลังดาวน์โหลด...</p>
+              </div>
+            </div>
 
-        {/* Progress bar */}
-        <div className="w-full h-2 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-3">
-          {pct !== null ? (
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-linear"
-              style={{ width: `${pct}%` }}
-            />
-          ) : (
-            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '40%' }} />
-          )}
-        </div>
+            {/* Progress bar */}
+            <div className="w-full h-2 bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-3">
+              {pct !== null ? (
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-linear"
+                  style={{ width: `${pct}%` }}
+                />
+              ) : (
+                <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '40%' }} />
+              )}
+            </div>
 
-        {/* Stats row */}
-        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
-          {dl.mode === 'photos' ? (
-            <span className="font-mono tabular-nums">
-              {dl.loaded} / {dl.total} รูป
-            </span>
-          ) : (
-            <span className="font-mono tabular-nums">
-              {fmtBytes(dl.loaded)}
-              {dl.total > 0 && <span className="text-slate-300 dark:text-zinc-600"> / {fmtBytes(dl.total)}</span>}
-            </span>
-          )}
-          <div className="flex items-center gap-3">
-            {dl.mode !== 'photos' && dl.speed > 1024 && (
-              <span className="font-mono tabular-nums">{fmtBytes(dl.speed)}/s</span>
-            )}
-            {dl.mode !== 'photos' && dl.eta > 0 && (
-              <span>เหลือ {fmtETA(dl.eta)}</span>
-            )}
-            {pct !== null && (
-              <span className="font-mono tabular-nums text-blue-500">{Math.round(pct)}%</span>
-            )}
-          </div>
-        </div>
+            {/* Stats row */}
+            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+              {dl.mode === 'photos' ? (
+                <span className="font-mono tabular-nums">
+                  {dl.loaded} / {dl.total} รูป
+                </span>
+              ) : (
+                <span className="font-mono tabular-nums">
+                  {fmtBytes(dl.loaded)}
+                  {dl.total > 0 && <span className="text-slate-300 dark:text-zinc-600"> / {fmtBytes(dl.total)}</span>}
+                </span>
+              )}
+              <div className="flex items-center gap-3">
+                {dl.mode !== 'photos' && dl.speed > 1024 && (
+                  <span className="font-mono tabular-nums">{fmtBytes(dl.speed)}/s</span>
+                )}
+                {dl.mode !== 'photos' && dl.eta > 0 && (
+                  <span>เหลือ {fmtETA(dl.eta)}</span>
+                )}
+                {pct !== null && (
+                  <span className="font-mono tabular-nums text-blue-500">{Math.round(pct)}%</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -127,6 +140,7 @@ async function downloadAlbumZip(
 
   const startTime = Date.now()
   setDl({ active: true, label: filename, loaded: 0, total: 0, speed: 0, eta: 0 })
+  let success = false
   try {
     const res = await apiClient.get<ArrayBuffer>(`/keeps/albums/${albumId}/download`, {
       responseType: 'arraybuffer',
@@ -141,7 +155,12 @@ async function downloadAlbumZip(
     const data = new Uint8Array(res.data as ArrayBuffer)
     const result = await window.electronAPI?.writeFile(filePath, data)
     if (result && !result.ok) throw new Error(result.error)
+    success = true
   } finally {
+    if (success) {
+      setDl({ active: true, label: filename, loaded: 0, total: 0, speed: 0, eta: 0, done: true })
+      await new Promise(r => setTimeout(r, 1000))
+    }
     setDl(DL_IDLE)
   }
 }
@@ -1207,6 +1226,8 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
 
       if (failed > 0) alert(`ดาวน์โหลดสำเร็จ ${successCount} รูป (ไม่สำเร็จ ${failed} รูป)`)
       setIsSelectMode(false); setSelectedIds([])
+      setDlProgress({ active: true, label: filename, loaded: 0, total: 0, speed: 0, eta: 0, done: true })
+      await new Promise(r => setTimeout(r, 1000))
     } catch { alert('เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP') }
     finally { setDlProgress(DL_IDLE) }
   }
