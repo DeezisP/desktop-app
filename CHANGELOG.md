@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.33.0 — 2026-06-16
+
+### Changed
+
+- **PDF print workflow.** "พิมพ์" buttons in BarcodeLabelPanel and WebOrderDetailPanel now open the generated label as a native PDF in a new browser tab instead of triggering a silent popup print. The browser's built-in PDF viewer handles preview, zoom, download, and printing. Label dimensions, barcode encoding, fonts, and layout are unchanged.
+
 ## v2.18.0 — 2026-06-15
 
 ### Features

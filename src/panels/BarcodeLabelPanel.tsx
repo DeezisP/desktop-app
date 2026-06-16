@@ -14,12 +14,6 @@ import { CardSkeleton } from '../components/Skeleton';
 const SENDER_NAME = 'Perfect Electronic';
 const SENDER_PHONE = '088-683-7697';
 
-type ElectronWindow = Window & {
-  electronAPI?: {
-    printHtml?: (html: string) => Promise<{ ok: boolean; error?: string }>
-  }
-}
-
 interface LabelItem { product: WarehouseProduct; qty: number; }
 
 interface SavedLabel {
@@ -94,32 +88,21 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
 }
 
 // ── Print helper ──────────────────────────────────────────────────────────────
-// Captures element as PNG, then sends to print via Electron IPC (preferred) or
-// a browser popup window — matching the frontend's captureAndPrint logic exactly.
+// Captures element as PNG, embeds it into a 100×150 mm PDF, then opens the PDF
+// blob in a new tab so the browser's native PDF viewer handles preview and print.
 
-async function captureAndPrint(element: HTMLElement, mode: 'label' | 'bill' = 'label') {
+async function captureAndPrint(element: HTMLElement) {
   const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
   const imgData = canvas.toDataURL('image/png');
-  const [pw, ph] = ['100mm', '150mm'];
-
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${mode === 'bill' ? 'บิล' : 'ป้ายพัสดุ'}</title>
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:#fff; }
-img { width:${pw}; height:auto; display:block; }
-@media print { @page { size:${pw} ${ph}; margin:0; } body { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
-</style></head><body>
-<img src="${imgData}" onload="window.focus();setTimeout(function(){window.print();},100);" />
-</body></html>`;
-
-  const api = (window as ElectronWindow).electronAPI;
-  if (api?.printHtml) {
-    await api.printHtml(html);
-  } else {
-    const win = window.open('', '_blank', `width=450,height=720`);
-    if (win) { win.document.write(html); win.document.close(); win.focus(); }
-  }
+  const [pw, ph] = [100, 150];
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pw, ph] });
+  pdf.addImage(imgData, 'PNG', 0, 0, pw, ph);
+  const pdfBytes = pdf.output('arraybuffer');
+  const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  const newWindow = window.open(pdfUrl, '_blank');
+  if (newWindow) newWindow.focus();
+  setTimeout(() => URL.revokeObjectURL(pdfUrl), 300_000);
 }
 
 // ── Code 128B barcode ─────────────────────────────────────────────────────────
@@ -355,7 +338,7 @@ export default function BarcodeLabelPanel() {
     const t = setTimeout(async () => {
       if (!hiddenRef.current) return;
       try {
-        await captureAndPrint(hiddenRef.current, pendingPrint.items.length === 0 ? 'bill' : 'label');
+        await captureAndPrint(hiddenRef.current);
       } finally {
         setPendingPrint(null);
       }

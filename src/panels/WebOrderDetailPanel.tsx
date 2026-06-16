@@ -149,14 +149,17 @@ async function exportLabelPDF(order: StoreOrder, labelRef: React.RefObject<HTMLD
 async function printLabel(labelRef: React.RefObject<HTMLDivElement | null>) {
   if (!labelRef.current) return
   const { default: html2canvas } = await import('html2canvas')
+  const { default: jsPDF } = await import('jspdf')
   const canvas = await html2canvas(labelRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff' })
-  const dataUrl = canvas.toDataURL('image/png')
-  const win = window.open('', '_blank')
-  if (!win) return
-  win.document.write(`<html><head><title>Label</title><style>*{margin:0;padding:0;box-sizing:border-box}@page{size:105mm 148mm;margin:0}html,body{width:105mm;height:148mm;overflow:hidden}img{width:105mm;height:148mm;display:block;print-color-adjust:exact;-webkit-print-color-adjust:exact}</style></head><body><img src="${dataUrl}"/></body></html>`)
-  win.document.close()
-  win.focus()
-  setTimeout(() => { win.print(); win.close() }, 500)
+  const imgData = canvas.toDataURL('image/png')
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a6' })
+  pdf.addImage(imgData, 'PNG', 0, 0, 105, 148)
+  const pdfBytes = pdf.output('arraybuffer')
+  const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' })
+  const pdfUrl = URL.createObjectURL(pdfBlob)
+  const newWindow = window.open(pdfUrl, '_blank')
+  if (newWindow) newWindow.focus()
+  setTimeout(() => URL.revokeObjectURL(pdfUrl), 300_000)
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
