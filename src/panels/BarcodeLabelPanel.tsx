@@ -109,13 +109,12 @@ async function captureAndPrint(element: HTMLElement) {
 
 // ── Code 128B barcode ─────────────────────────────────────────────────────────
 
-function Code128SVG({ value, height = 60 }: { value: string; height?: number }) {
+function Code128SVG({ value, width = 348, height = 60 }: { value: string; width?: number; height?: number }) {
   if (!value) return null;
   const widths = encodeCode128B(value);
   const QUIET = 10;
   const total = totalModules(widths) + QUIET * 2;
-  const VW = 400; // internal coordinate width — viewBox scales to actual display width
-  const mw = VW / total;
+  const mw = width / total;
   const rects: { x: number; w: number }[] = [];
   let x = QUIET * mw;
   for (let i = 0; i < widths.length; i++) {
@@ -123,8 +122,8 @@ function Code128SVG({ value, height = 60 }: { value: string; height?: number }) 
     x += widths[i] * mw;
   }
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${VW} ${height}`} style={{ display: 'block' }}>
-      <rect x={0} y={0} width={VW} height={height} fill="#fff" />
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', margin: '0 auto' }}>
+      <rect x={0} y={0} width={width} height={height} fill="#fff" />
       {rects.map((r, i) => <rect key={i} x={r.x} y={0} width={Math.max(0.5, r.w - 0.1)} height={height} fill="#000" />)}
     </svg>
   );
@@ -142,9 +141,12 @@ function ShippingLabel({
   barcodeValue: string;
   mode?: 'label' | 'bill';
 }) {
+  const LABEL_W = 375;
+  const BARCODE_W = LABEL_W - 32;
+
   return (
     <div style={{
-      width: '100%',
+      width: `${LABEL_W}px`,
       backgroundColor: '#ffffff',
       fontFamily: '"Sarabun","Noto Sans Thai",Arial,sans-serif',
       color: '#111111',
@@ -165,7 +167,7 @@ function ShippingLabel({
       <div style={{ padding: '14px 18px 10px', borderBottom: '1px dashed #d1d5db', backgroundColor: '#fafafa', textAlign: 'center' }}>
         {barcodeValue ? (
           <>
-            <Code128SVG value={barcodeValue} height={54} />
+            <Code128SVG value={barcodeValue} width={BARCODE_W} height={54} />
             <div style={{ fontFamily: 'monospace', fontSize: '8px', color: '#000000', marginTop: '5px', letterSpacing: '2px' }}>
               {barcodeValue}
             </div>
@@ -702,8 +704,9 @@ export default function BarcodeLabelPanel() {
           )}
 
           {/* Live label preview */}
-          <div ref={labelRef}>
-            <ShippingLabel
+          <div className="flex justify-center">
+            <div ref={labelRef}>
+              <ShippingLabel
                 items={items}
                 recipientName={recipientName}
                 recipientPhone={recipientPhone}
@@ -711,6 +714,7 @@ export default function BarcodeLabelPanel() {
                 barcodeValue={previewBarcode}
                 mode={labelMode}
               />
+            </div>
           </div>
         </div>
       </div>
@@ -924,7 +928,7 @@ export default function BarcodeLabelPanel() {
       )}
 
       {/* Hidden label DOM for re-printing saved entries */}
-      <div style={{ position: 'fixed', left: '-9999px', top: '-9999px', pointerEvents: 'none', width: '375px' }}>
+      <div style={{ position: 'fixed', left: '-9999px', top: '-9999px', pointerEvents: 'none' }}>
         {pendingPrint && (
           <div ref={hiddenRef}>
             <ShippingLabel
