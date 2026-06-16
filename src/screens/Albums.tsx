@@ -694,17 +694,27 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                     <div className="flex-1 min-w-0">
                       <input
                         ref={el => { if (album.id > 0) titleInputRef.current[album.id] = el }}
-                        className="w-full text-[15px] font-semibold text-slate-800 dark:text-zinc-100 bg-transparent border-none p-0 focus:outline-none focus:ring-0 placeholder:text-slate-300"
+                        className="w-full text-[15px] font-semibold text-slate-800 dark:text-zinc-100 bg-transparent border-none p-0 focus:outline-none focus:ring-0 placeholder:text-slate-300 cursor-copy"
                         value={album.title} placeholder="ชื่ออัลบั้ม"
                         onChange={e => {
                           const val = e.target.value
                           setAlbums(prev => prev.map(a => a.id === album.id ? { ...a, title: val } : a))
                         }}
                         onBlur={e => handleUpdateField(album, { title: e.target.value })}
-                        onClick={e => e.stopPropagation()}
+                        onClick={e => {
+                          e.stopPropagation()
+                          navigator.clipboard.writeText(album.title).then(() => {
+                            setCopiedAlbumId(album.id)
+                            setTimeout(() => setCopiedAlbumId(null), 1500)
+                          })
+                        }}
                       />
                       <div className="mt-1">
-                        {album.isDone ? (
+                        {copiedAlbumId === album.id ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-500">
+                            <Check size={12} /> คัดลอกแล้ว
+                          </span>
+                        ) : album.isDone ? (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                             <CheckCircle2 size={12} /> เสร็จสิ้นแล้ว
                           </span>
@@ -819,29 +829,12 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                   {/* Footer */}
                   <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-zinc-800 mt-auto">
                     <span className="text-[11px] text-slate-400 dark:text-zinc-500">{album.photoCount} รูปภาพ</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={e => {
-                          e.stopPropagation()
-                          navigator.clipboard.writeText(album.title).then(() => {
-                            setCopiedAlbumId(album.id)
-                            setTimeout(() => setCopiedAlbumId(null), 1500)
-                          })
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                      >
-                        {copiedAlbumId === album.id
-                          ? <><Check size={12} className="text-emerald-500" /> คัดลอกแล้ว</>
-                          : <><Copy size={12} /> คัดลอกชื่อ</>
-                        }
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
-                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                      >
-                        <Download size={12} /> ดาวน์โหลด
-                      </button>
-                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
+                      className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                    >
+                      <Download size={12} /> ดาวน์โหลด
+                    </button>
                   </div>
                 </div>
               </div>
