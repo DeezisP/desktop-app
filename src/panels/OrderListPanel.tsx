@@ -245,6 +245,20 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
+  // Auto-remove PACKED orders older than 2 days
+  useEffect(() => {
+    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - TWO_DAYS_MS;
+    const stale = orders.filter(
+      o => o.importStatus === 'PACKED' && new Date(o.createdAt).getTime() < cutoff,
+    );
+    if (stale.length === 0) return;
+    const orderNumbers = stale.map(o => o.orderNumber);
+    Promise.allSettled(orderNumbers.map(n => WarehouseService.deleteOrder(n))).then(() => {
+      storeRemoveOrders(orderNumbers);
+    });
+  }, [orders, storeRemoveOrders]);
+
   useEffect(() => { setPage(0); }, [sourceFilter, search]);
 
   const handleFilterChange = useCallback((f: StatusFilter) => {
