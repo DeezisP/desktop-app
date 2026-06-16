@@ -607,6 +607,7 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                 {/* Cover */}
                 {(() => {
                   const hasRequest = (photoRequests[album.id]?.length ?? 0) > 0
+                  const requestNote = photoRequests[album.id]?.[0]?.note ?? ''
                   return (
                     <div
                       className="relative aspect-[4/3] cursor-pointer bg-slate-100 dark:bg-zinc-800 overflow-hidden"
@@ -627,16 +628,25 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                       {album.photos && album.photos.length > 0 ? (
                         <>
                           <CoverImage src={(album.photos[0] as any).fileUrl} />
+                          {/* Note overlay at bottom */}
+                          {hasRequest && !isOverlay && requestNote && (
+                            <div className="absolute bottom-0 left-0 right-0 z-[2] bg-gradient-to-t from-black/75 to-transparent px-2.5 pt-4 pb-2">
+                              <p className="text-[10px] text-white leading-snug line-clamp-2">{requestNote}</p>
+                            </div>
+                          )}
                           {album.photoCount > 1 && (
-                            <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2 py-0.5 rounded-full z-[1]">
+                            <div className={`absolute right-2 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2 py-0.5 rounded-full z-[3] ${hasRequest && requestNote ? 'bottom-9' : 'bottom-2'}`}>
                               +{album.photoCount - 1} รูป
                             </div>
                           )}
                         </>
                       ) : hasRequest ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-orange-50 dark:bg-orange-950/20 text-orange-400 dark:text-orange-500">
-                          <Camera size={36} strokeWidth={1.5} />
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-orange-50 dark:bg-orange-950/20 text-orange-400 dark:text-orange-500 px-3">
+                          <Camera size={32} strokeWidth={1.5} />
                           <span className="text-[11px] font-bold tracking-wide">ถ่ายรูปใหม่</span>
+                          {requestNote && (
+                            <p className="text-[10px] text-center text-orange-400/80 dark:text-orange-400/70 leading-snug line-clamp-3 mt-0.5">{requestNote}</p>
+                          )}
                         </div>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-zinc-600">
