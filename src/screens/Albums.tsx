@@ -9,7 +9,7 @@ import {
   Loader2, Search, Check, CheckCircle2, XCircle, Edit3,
   ImageIcon, Package, ArrowLeft, ChevronLeft, ChevronRight,
   ZoomIn, ZoomOut, Maximize, CheckSquare, Square, RotateCcw,
-  Image as ImageIconSm, Camera,
+  Image as ImageIconSm, Camera, Copy,
 } from 'lucide-react'
 import { albumApi } from '../api/albumApi'
 import { apiClient } from '../api/client'
@@ -334,12 +334,15 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   const [deleteConfirm,   setDeleteConfirm]    = useState<{ id: number; title: string } | null>(null)
   const [formData,        setFormData]         = useState({ ...EMPTY_FORM })
   const [dlProgress,           setDlProgress]           = useState<DlProgress>(DL_IDLE)
-  const [photoRequests,        setPhotoRequests]         = useState<Record<number, PhotoRequest[]>>({})
+  const [photoRequests,        setPhotoRequests]         = useState<Record<number, PhotoRequest[]>>(() => {
+    try { const c = localStorage.getItem('photo-requests-cache'); return c ? JSON.parse(c) : {} } catch { return {} }
+  })
   const [showRequestModal,     setShowRequestModal]      = useState<number | null>(null)
   const [requestNote,          setRequestNote]           = useState('')
   const [requestSampleFile,    setRequestSampleFile]     = useState<File | null>(null)
   const [requestSamplePreview, setRequestSamplePreview]  = useState<string | null>(null)
   const [requestSubmitting,    setRequestSubmitting]     = useState(false)
+  const [copiedAlbumId,        setCopiedAlbumId]         = useState<number | null>(null)
 
   const loadAlbums = useCallback(async () => {
     try {
@@ -367,6 +370,7 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
         if (!byAlbum[r.albumId]) byAlbum[r.albumId] = []
         byAlbum[r.albumId].push(r)
       })
+      localStorage.setItem('photo-requests-cache', JSON.stringify(byAlbum))
       setPhotoRequests(byAlbum)
     } catch {}
   }, [])
@@ -808,12 +812,29 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                   {/* Footer */}
                   <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-zinc-800 mt-auto">
                     <span className="text-[11px] text-slate-400 dark:text-zinc-500">{album.photoCount} รูปภาพ</span>
-                    <button
-                      onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
-                      className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
-                    >
-                      <Download size={12} /> ดาวน์โหลด
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          navigator.clipboard.writeText(album.title).then(() => {
+                            setCopiedAlbumId(album.id)
+                            setTimeout(() => setCopiedAlbumId(null), 1500)
+                          })
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                      >
+                        {copiedAlbumId === album.id
+                          ? <><Check size={12} className="text-emerald-500" /> คัดลอกแล้ว</>
+                          : <><Copy size={12} /> คัดลอกชื่อ</>
+                        }
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
+                        className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                      >
+                        <Download size={12} /> ดาวน์โหลด
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
