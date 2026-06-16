@@ -1,6 +1,7 @@
 
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Search, Loader2, X, Package2 } from 'lucide-react';
 import WarehouseService, {
   type BackendOrder,
   type BackendOrderItem,
@@ -77,6 +78,35 @@ const PLATFORM_META: Record<string, { bg: string; text: string; border: string; 
 function getPlatformMeta(platform: string | null) {
   if (!platform) return null;
   return PLATFORM_META[platform.toLowerCase()] ?? null;
+}
+
+// ── Product search helpers (for match panel) ──────────────────────────────────
+
+function splitTitle(title: string): { parent: string; label: string } {
+  const idx = title.lastIndexOf(' - ');
+  if (idx !== -1) return { parent: title.slice(0, idx), label: title.slice(idx + 3) };
+  return { parent: title, label: '' };
+}
+
+type SearchGroup = {
+  parentTitle: string;
+  variations: { product: WarehouseProduct; label: string }[];
+  isSimple: boolean;
+};
+
+function groupSearchResults(products: WarehouseProduct[]): SearchGroup[] {
+  const map = new Map<string, { variations: { product: WarehouseProduct; label: string }[] }>();
+  for (const p of products) {
+    const { parent, label } = splitTitle(p.title);
+    const g = map.get(parent) ?? { variations: [] };
+    g.variations.push({ product: p, label: label || p.title });
+    map.set(parent, g);
+  }
+  return Array.from(map.entries()).map(([parentTitle, g]) => ({
+    parentTitle,
+    variations: g.variations,
+    isSimple: g.variations.length === 1 && !g.variations[0].product.title.includes(' - '),
+  }));
 }
 
 const PAGE_SIZE = 30;
@@ -181,7 +211,13 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     groupKey: string; itemIds: number[]; query: string; results: WarehouseProduct[]; loading: boolean;
   } | null>(null);
   const [matchedProductNames, setMatchedProductNames] = useState<Map<number, string>>(new Map());
-  const [matchAnchor, setMatchAnchor]   = useState<{ top: number; left: number } | null>(null);
+  const [matchPanel, setMatchPanel] = useState<{
+    open: boolean;
+    merged: MergedItem | null;
+    query: string;
+    results: WarehouseProduct[];
+    loading: boolean;
+  }>({ open: false, merged: null, query: '', results: [], loading: false });
   const matchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dateFilter, setDateFilter]     = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -297,40 +333,38 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     setBulkDeleting(false);
   }, [orders, selectedIds, storeRemoveOrders]);
 
-  const runMatchSearch = useCallback((groupKey: string, query: string) => {
+  const runMatchSearch = useCallback((merged: MergedItem, query: string) => {
     if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
-    if (!query.trim()) { setMatchSearch(prev => prev?.groupKey === groupKey ? { ...prev, results: [], loading: false } : prev); return; }
-    setMatchSearch(prev => prev?.groupKey === groupKey ? { ...prev, loading: true } : prev);
+    if (!query.trim()) {
+      setMatchPanel(prev => ({ ...prev, results: [], loading: false }));
+      return;
+    }
+    setMatchPanel(prev => ({ ...prev, loading: true }));
     matchTimerRef.current = setTimeout(async () => {
       try {
         const res = await WarehouseService.searchProducts(query);
-        setMatchSearch(prev => prev?.groupKey === groupKey ? { ...prev, results: res.data.data, loading: false } : prev);
+        setMatchPanel(prev => prev.merged?.key === merged.key ? { ...prev, results: res.data.data, loading: false } : prev);
       } catch {
-        setMatchSearch(prev => prev?.groupKey === groupKey ? { ...prev, loading: false } : prev);
+        setMatchPanel(prev => ({ ...prev, loading: false }));
       }
     }, 280);
   }, []);
 
-  const handleMatchSearch = useCallback((groupKey: string, itemIds: number[], query: string) => {
-    setMatchSearch(prev => prev?.groupKey === groupKey
-      ? { ...prev, query }
-      : { groupKey, itemIds, query, results: [], loading: false });
-    runMatchSearch(groupKey, query);
-  }, [runMatchSearch]);
-
-  const handleOpenMatch = useCallback((merged: MergedItem, e: React.MouseEvent<HTMLButtonElement | HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const left = Math.min(rect.left, window.innerWidth - 260);
-    setMatchAnchor({ top: rect.bottom + 4, left });
+  const handleOpenMatch = useCallback((merged: MergedItem) => {
     const initial = [merged.productName?.trim(), merged.variant?.trim()].filter(Boolean).join(' ');
-    setMatchSearch({ groupKey: merged.key, itemIds: merged.ids, query: initial, results: [], loading: !!initial });
-    if (initial) runMatchSearch(merged.key, initial);
+    setMatchPanel({ open: true, merged, query: initial, results: [], loading: !!initial });
+    if (initial) runMatchSearch(merged, initial);
   }, [runMatchSearch]);
 
   const handleCloseMatch = useCallback(() => {
-    setMatchSearch(null);
-    setMatchAnchor(null);
+    if (matchTimerRef.current) clearTimeout(matchTimerRef.current);
+    setMatchPanel({ open: false, merged: null, query: '', results: [], loading: false });
   }, []);
+
+  const handlePanelQueryChange = useCallback((query: string) => {
+    setMatchPanel(prev => ({ ...prev, query }));
+    if (matchPanel.merged) runMatchSearch(matchPanel.merged, query);
+  }, [matchPanel.merged, runMatchSearch]);
 
   const handleClearMatch = useCallback(async (merged: MergedItem) => {
     try {
@@ -347,7 +381,9 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
     } catch { /* silent */ }
   }, [storeBatchPatchItems]);
 
-  const handleSelectMatch = useCallback(async (merged: MergedItem, product: WarehouseProduct) => {
+  const handleSelectMatch = useCallback(async (product: WarehouseProduct) => {
+    const merged = matchPanel.merged;
+    if (!merged) return;
     handleCloseMatch();
     try {
       const settled = await Promise.allSettled(
@@ -361,7 +397,7 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
       }
       setMatchedProductNames(prev => { const n = new Map(prev); merged.ids.forEach(id => n.set(id, product.title)); return n; });
     } catch { /* silent */ }
-  }, [handleCloseMatch, storeBatchPatchItems]);
+  }, [matchPanel.merged, handleCloseMatch, storeBatchPatchItems]);
 
   // ── Derived state ─────────────────────────────────────────────────────────────
 
@@ -842,43 +878,9 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
 
                             {/* Match */}
                             <td className="px-3 py-2 text-left">
-                              {isOpen ? (
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    autoFocus
-                                    type="text"
-                                    value={matchSearch!.query}
-                                    onChange={e => handleMatchSearch(merged.key, merged.ids, e.target.value)}
-                                    onKeyDown={e => e.key === 'Escape' && handleCloseMatch()}
-                                    placeholder="ค้นหาสินค้า..."
-                                    className="w-32 px-2 py-1 text-[11px] rounded-lg border border-blue-400 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                                  />
-                                  <button onClick={handleCloseMatch} className="text-zinc-400 hover:text-zinc-600 flex-shrink-0 text-sm leading-none">
-                                    ×
-                                  </button>
-                                  {matchAnchor && (matchSearch!.loading || matchSearch!.results.length > 0) && (
-                                    <div
-                                      className="fixed z-[9999] w-64 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl overflow-y-auto"
-                                      style={{ top: matchAnchor.top, left: matchAnchor.left, maxHeight: 220 }}>
-                                      {matchSearch!.loading ? (
-                                        <div className="px-3 py-3 text-xs text-zinc-400">ค้นหา...</div>
-                                      ) : matchSearch!.results.map(prod => (
-                                        <button
-                                          key={prod.id}
-                                          onClick={() => handleSelectMatch(merged, prod)}
-                                          className="w-full text-left px-3 py-2.5 text-xs hover:bg-blue-50 dark:hover:bg-zinc-700 transition-colors border-b border-zinc-100 dark:border-zinc-700 last:border-0">
-                                          <p className="font-medium text-zinc-800 dark:text-zinc-200 leading-snug">{prod.title}</p>
-                                          <p className={`text-[10px] mt-0.5 ${prod.availableStock > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                                            สต็อก {prod.availableStock}
-                                          </p>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : merged.matchConfidence === 'UNMATCHED' || !merged.matchedProductId ? (
+                              {merged.matchConfidence === 'UNMATCHED' || !merged.matchedProductId ? (
                                 <button
-                                  onClick={e => handleOpenMatch(merged, e)}
+                                  onClick={() => handleOpenMatch(merged)}
                                   className="px-2 py-1 rounded-lg border border-dashed border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-[10px] font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors">
                                   เลือกสินค้า
                                 </button>
@@ -892,7 +894,7 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
                                       </span>
                                     )}
                                     <button
-                                      onClick={e => handleOpenMatch(merged, e)}
+                                      onClick={() => handleOpenMatch(merged)}
                                       title="เปลี่ยนสินค้า"
                                       className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors px-1">
                                       แก้
@@ -952,6 +954,121 @@ export default function OrderListPanel({ fixedStatus }: OrderListPanelProps = {}
                 {btn.label}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Match panel ── */}
+      {matchPanel.open && matchPanel.merged && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-xl max-h-[85vh] flex flex-col">
+
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-start justify-between gap-3 flex-shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">จับคู่สินค้า</h3>
+                <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
+                  {matchPanel.merged.productName}
+                  {matchPanel.merged.variant && <span className="text-zinc-300 dark:text-zinc-600"> · {matchPanel.merged.variant}</span>}
+                </p>
+              </div>
+              <button
+                onClick={handleCloseMatch}
+                className="flex-shrink-0 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-5 py-3 border-b border-zinc-100 dark:border-zinc-800 flex-shrink-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={matchPanel.query}
+                  onChange={e => handlePanelQueryChange(e.target.value)}
+                  onKeyDown={e => e.key === 'Escape' && handleCloseMatch()}
+                  placeholder="ค้นหาชื่อสินค้า, variation..."
+                  className="w-full pl-9 pr-10 py-2.5 text-sm rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                {matchPanel.loading && (
+                  <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 animate-spin" />
+                )}
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="overflow-y-auto flex-1 p-3 space-y-2">
+              {matchPanel.loading && matchPanel.results.length === 0 && (
+                <div className="flex items-center justify-center py-12 text-sm text-zinc-400 dark:text-zinc-500 gap-2">
+                  <Loader2 size={16} className="animate-spin" /> กำลังค้นหา...
+                </div>
+              )}
+              {!matchPanel.loading && matchPanel.results.length === 0 && matchPanel.query.trim() && (
+                <div className="flex items-center justify-center py-12 text-sm text-zinc-400 dark:text-zinc-500">
+                  ไม่พบสินค้าที่ตรงกัน
+                </div>
+              )}
+              {!matchPanel.query.trim() && (
+                <div className="flex flex-col items-center justify-center py-12 text-sm text-zinc-400 dark:text-zinc-500 gap-1">
+                  <Search size={28} strokeWidth={1.5} className="mb-1 opacity-30" />
+                  พิมพ์ชื่อสินค้าเพื่อค้นหา
+                </div>
+              )}
+              {groupSearchResults(matchPanel.results).map(group => (
+                <div
+                  key={group.parentTitle}
+                  className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+
+                  {/* Group header */}
+                  <div className="px-4 py-2.5 flex items-center gap-2 bg-white dark:bg-zinc-800/80 border-b border-zinc-100 dark:border-zinc-700/60">
+                    <Package2 size={13} className="text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200 truncate flex-1">{group.parentTitle}</span>
+                    {group.variations.length > 1 && (
+                      <span className="flex-shrink-0 text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums">
+                        {group.variations.length} ตัวเลือก
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Variation chips */}
+                  <div className="p-3 flex flex-wrap gap-2">
+                    {group.variations.map(({ product, label }) => {
+                      const isOOS = product.availableStock <= 0;
+                      const isLow = product.availableStock > 0 && product.availableStock < 10;
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => handleSelectMatch(product)}
+                          className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-all active:scale-95 ${
+                            isOOS
+                              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 hover:border-red-400 dark:hover:border-red-500'
+                              : isLow
+                                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700 hover:border-amber-400 dark:hover:border-amber-500'
+                                : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/60 dark:hover:bg-blue-900/20'
+                          }`}>
+                          <span className={`text-xs font-semibold leading-snug ${
+                            isOOS ? 'text-red-700 dark:text-red-400' :
+                            isLow ? 'text-amber-700 dark:text-amber-400' :
+                            'text-zinc-700 dark:text-zinc-200'
+                          }`}>
+                            {group.isSimple ? group.parentTitle : label}
+                          </span>
+                          <span className={`text-[10px] mt-0.5 tabular-nums ${
+                            isOOS ? 'text-red-500 dark:text-red-400' :
+                            isLow ? 'text-amber-600 dark:text-amber-400' :
+                            'text-zinc-400 dark:text-zinc-500'
+                          }`}>
+                            {isOOS ? 'หมดสต็อก' : `สต็อก ${product.availableStock}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
