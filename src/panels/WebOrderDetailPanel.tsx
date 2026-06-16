@@ -148,6 +148,8 @@ async function exportLabelPDF(order: StoreOrder, labelRef: React.RefObject<HTMLD
 
 async function printLabel(labelRef: React.RefObject<HTMLDivElement | null>) {
   if (!labelRef.current) return
+  // Open before any await so popup blockers see it as user-initiated.
+  const newWindow = window.open('about:blank', '_blank')
   const { default: html2canvas } = await import('html2canvas')
   const { default: jsPDF } = await import('jspdf')
   const canvas = await html2canvas(labelRef.current, { scale: 3, useCORS: true, backgroundColor: '#ffffff' })
@@ -157,8 +159,7 @@ async function printLabel(labelRef: React.RefObject<HTMLDivElement | null>) {
   const pdfBytes = pdf.output('arraybuffer')
   const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' })
   const pdfUrl = URL.createObjectURL(pdfBlob)
-  const newWindow = window.open(pdfUrl, '_blank')
-  if (newWindow) newWindow.focus()
+  if (newWindow) { newWindow.location.href = pdfUrl; newWindow.focus() }
   setTimeout(() => URL.revokeObjectURL(pdfUrl), 300_000)
 }
 

@@ -92,6 +92,9 @@ function backendOrderToSavedLabel(order: BackendOrder): SavedLabel {
 // blob in a new tab so the browser's native PDF viewer handles preview and print.
 
 async function captureAndPrint(element: HTMLElement) {
+  // Must open the window synchronously before any await — popup blockers reject
+  // window.open() calls that happen after an async boundary.
+  const newWindow = window.open('about:blank', '_blank');
   const canvas = await html2canvas(element, { scale: 3, useCORS: true, backgroundColor: '#ffffff', logging: false });
   const imgData = canvas.toDataURL('image/png');
   const [pw, ph] = [100, 150];
@@ -100,8 +103,7 @@ async function captureAndPrint(element: HTMLElement) {
   const pdfBytes = pdf.output('arraybuffer');
   const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
   const pdfUrl = URL.createObjectURL(pdfBlob);
-  const newWindow = window.open(pdfUrl, '_blank');
-  if (newWindow) newWindow.focus();
+  if (newWindow) { newWindow.location.href = pdfUrl; newWindow.focus(); }
   setTimeout(() => URL.revokeObjectURL(pdfUrl), 300_000);
 }
 
