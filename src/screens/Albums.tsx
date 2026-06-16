@@ -443,14 +443,21 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
 
   const isNoInfo = (a: AlbumRow) => !a.price && !a.description
 
-  const filteredAlbums = useMemo(() => albums.filter(a => {
-    if (!a.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    if (activeFilter === 'all') return true
-    if (activeFilter === 'isNotDone') return !a.isDone
-    if (activeFilter === 'noInfo')   return isNoInfo(a) && !a.isDone
-    if (activeFilter === 'hasInfo')  return !isNoInfo(a) && !a.isDone
-    return (a as any)[activeFilter] === true
-  }).filter(a => a.id !== isDeletingId), [albums, searchQuery, activeFilter, isDeletingId])
+  const filteredAlbums = useMemo(() => {
+    const list = albums.filter(a => {
+      if (!a.title.toLowerCase().includes(searchQuery.toLowerCase())) return false
+      if (activeFilter === 'all') return true
+      if (activeFilter === 'isNotDone') return !a.isDone
+      if (activeFilter === 'noInfo')   return isNoInfo(a) && !a.isDone
+      if (activeFilter === 'hasInfo')  return !isNoInfo(a) && !a.isDone
+      return (a as any)[activeFilter] === true
+    }).filter(a => a.id !== isDeletingId)
+    return [...list].sort((a, b) => {
+      const aReq = (photoRequests[a.id]?.length ?? 0) > 0 ? 1 : 0
+      const bReq = (photoRequests[b.id]?.length ?? 0) > 0 ? 1 : 0
+      return bReq - aReq
+    })
+  }, [albums, searchQuery, activeFilter, isDeletingId, photoRequests])
 
   const getCount = (key: string) => {
     const all = albums.filter(a => a.id !== isDeletingId)
