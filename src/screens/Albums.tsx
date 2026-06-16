@@ -9,12 +9,14 @@ import {
   Loader2, Search, Check, CheckCircle2, XCircle, Edit3,
   ImageIcon, Package, ArrowLeft, ChevronLeft, ChevronRight,
   ZoomIn, ZoomOut, Maximize, CheckSquare, Square, RotateCcw,
-  Image as ImageIconSm,
+  Image as ImageIconSm, Camera,
 } from 'lucide-react'
 import { albumApi } from '../api/albumApi'
 import { apiClient } from '../api/client'
 import type { Album, Photo, AlbumWithPhotos, AlbumParams } from '../api/albumApi'
 import { warehouseStompClient } from '../stomp/client'
+import { photoRequestApi } from '../api/photoRequestApi'
+import type { PhotoRequest } from '../api/photoRequestApi'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -312,7 +314,13 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   const [isDeletingId,    setIsDeletingId]     = useState<number | null>(null)
   const [deleteConfirm,   setDeleteConfirm]    = useState<{ id: number; title: string } | null>(null)
   const [formData,        setFormData]         = useState({ ...EMPTY_FORM })
-  const [dlProgress,      setDlProgress]       = useState<DlProgress>(DL_IDLE)
+  const [dlProgress,           setDlProgress]           = useState<DlProgress>(DL_IDLE)
+  const [photoRequests,        setPhotoRequests]         = useState<Record<number, PhotoRequest[]>>({})
+  const [showRequestModal,     setShowRequestModal]      = useState<number | null>(null)
+  const [requestNote,          setRequestNote]           = useState('')
+  const [requestSampleFile,    setRequestSampleFile]     = useState<File | null>(null)
+  const [requestSamplePreview, setRequestSamplePreview]  = useState<string | null>(null)
+  const [requestSubmitting,    setRequestSubmitting]     = useState(false)
 
   const loadAlbums = useCallback(async () => {
     try {
@@ -331,6 +339,51 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
   }, [])
 
   useEffect(() => { loadAlbums() }, [loadAlbums])
+
+  const loadPhotoRequests = useCallback(async () => {
+    try {
+      const all = await photoRequestApi.getAll()
+      const byAlbum: Record<number, PhotoRequest[]> = {}
+      all.forEach(r => {
+        if (!byAlbum[r.albumId]) byAlbum[r.albumId] = []
+        byAlbum[r.albumId].push(r)
+      })
+      setPhotoRequests(byAlbum)
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadPhotoRequests() }, [loadPhotoRequests])
+
+  const closeRequestModal = () => {
+    setShowRequestModal(null)
+    setRequestNote('')
+    setRequestSampleFile(null)
+    if (requestSamplePreview) URL.revokeObjectURL(requestSamplePreview)
+    setRequestSamplePreview(null)
+  }
+
+  const handleRequestSubmit = async () => {
+    if (showRequestModal === null) return
+    setRequestSubmitting(true)
+    try {
+      const req = await photoRequestApi.create(showRequestModal, requestNote, requestSampleFile ?? undefined)
+      setPhotoRequests(prev => ({
+        ...prev,
+        [showRequestModal]: [...(prev[showRequestModal] ?? []), req],
+      }))
+      closeRequestModal()
+    } catch {}
+    finally { setRequestSubmitting(false) }
+  }
+
+  const handleCancelRequest = async (albumId: number) => {
+    const requests = photoRequests[albumId] ?? []
+    for (const req of requests) {
+      try { await photoRequestApi.deleteRequest(req.id) } catch {}
+    }
+    setPhotoRequests(prev => { const n = { ...prev }; delete n[albumId]; return n })
+    setActiveMenu(null)
+  }
 
   // STOMP: real-time album list updates
   useEffect(() => {
@@ -552,31 +605,47 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                 style={{ animationDelay: `${index * 40}ms` }}
               >
                 {/* Cover */}
-                <div
-                  className="relative aspect-[4/3] cursor-pointer bg-slate-100 dark:bg-zinc-800 overflow-hidden"
-                  onClick={() => !isOverlay && typeof album.id === 'number' && album.id > 0 && onSelectAlbum(album.id)}
-                >
-                  {isOverlay && (
-                    <div className="absolute inset-0 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="animate-spin text-blue-500" size={22} />
-                      <span className="text-xs font-medium text-slate-600 dark:text-zinc-400">{overlayLabel}</span>
-                    </div>
-                  )}
-                  {album.photos && album.photos.length > 0 ? (
-                    <>
-                      <CoverImage src={(album.photos[0] as any).fileUrl} />
-                      {album.photoCount > 1 && (
-                        <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2 py-0.5 rounded-full z-[1]">
-                          +{album.photoCount - 1} รูป
+                {(() => {
+                  const hasRequest = (photoRequests[album.id]?.length ?? 0) > 0
+                  return (
+                    <div
+                      className="relative aspect-[4/3] cursor-pointer bg-slate-100 dark:bg-zinc-800 overflow-hidden"
+                      onClick={() => !isOverlay && typeof album.id === 'number' && album.id > 0 && onSelectAlbum(album.id)}
+                    >
+                      {isOverlay && (
+                        <div className="absolute inset-0 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center gap-2">
+                          <Loader2 className="animate-spin text-blue-500" size={22} />
+                          <span className="text-xs font-medium text-slate-600 dark:text-zinc-400">{overlayLabel}</span>
                         </div>
                       )}
-                    </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-zinc-600">
-                      <FolderOpen size={40} />
+                      {/* Photo-request badge */}
+                      {hasRequest && !isOverlay && (
+                        <div className="absolute top-2 left-2 z-[2] flex items-center gap-1 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md">
+                          <Camera size={10} /> ถ่ายรูปใหม่
+                        </div>
+                      )}
+                      {album.photos && album.photos.length > 0 ? (
+                        <>
+                          <CoverImage src={(album.photos[0] as any).fileUrl} />
+                          {album.photoCount > 1 && (
+                            <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2 py-0.5 rounded-full z-[1]">
+                              +{album.photoCount - 1} รูป
+                            </div>
+                          )}
+                        </>
+                      ) : hasRequest ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-orange-50 dark:bg-orange-950/20 text-orange-400 dark:text-orange-500">
+                          <Camera size={36} strokeWidth={1.5} />
+                          <span className="text-[11px] font-bold tracking-wide">ถ่ายรูปใหม่</span>
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300 dark:text-zinc-600">
+                          <FolderOpen size={40} />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  )
+                })()}
 
                 {/* Body */}
                 <div className="p-4 flex flex-col gap-3 flex-1">
@@ -616,7 +685,7 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                         </button>
                         {activeMenu === album.id && (
                           <div
-                            className="absolute right-0 top-9 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-xl z-20 w-44 overflow-hidden"
+                            className="absolute right-0 top-9 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-xl z-20 w-48 overflow-hidden"
                             onMouseLeave={() => setActiveMenu(null)}
                           >
                             <button
@@ -637,12 +706,22 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                               {album.isDone ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จสิ้น'}
                             </button>
                             <div className="h-px bg-slate-100 dark:bg-zinc-700 mx-2" />
-                            <button
-                              className="w-full px-3.5 py-2.5 text-left text-sm flex items-center gap-2.5 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 transition-colors"
-                              onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
-                            >
-                              <Download size={14} /> ดาวน์โหลด
-                            </button>
+                            {(photoRequests[album.id]?.length ?? 0) > 0 ? (
+                              <button
+                                className="w-full px-3.5 py-2.5 text-left text-sm flex items-center gap-2.5 hover:bg-orange-50 dark:hover:bg-orange-950/30 text-orange-600 dark:text-orange-400 transition-colors"
+                                onClick={e => { e.stopPropagation(); handleCancelRequest(album.id) }}
+                              >
+                                <XCircle size={14} /> ยกเลิกคำขอถ่ายรูป
+                              </button>
+                            ) : (
+                              <button
+                                className="w-full px-3.5 py-2.5 text-left text-sm flex items-center gap-2.5 hover:bg-orange-50 dark:hover:bg-orange-950/30 text-orange-600 dark:text-orange-400 transition-colors"
+                                onClick={e => { e.stopPropagation(); setShowRequestModal(album.id); setActiveMenu(null) }}
+                              >
+                                <Camera size={14} /> ขอถ่ายรูปใหม่
+                              </button>
+                            )}
+                            <div className="h-px bg-slate-100 dark:bg-zinc-700 mx-2" />
                             <button
                               className="w-full px-3.5 py-2.5 text-left text-sm flex items-center gap-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 transition-colors"
                               onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: album.id, title: album.title }); setActiveMenu(null) }}
@@ -700,9 +779,12 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
                   {/* Footer */}
                   <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-zinc-800 mt-auto">
                     <span className="text-[11px] text-slate-400 dark:text-zinc-500">{album.photoCount} รูปภาพ</span>
-                    <span className="text-[11px] text-slate-400 dark:text-zinc-500">
-                      {new Date(album.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
-                    </span>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDownload(album.id, album.title) }}
+                      className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                    >
+                      <Download size={12} /> ดาวน์โหลด
+                    </button>
                   </div>
                 </div>
               </div>
@@ -844,6 +926,70 @@ function AlbumGallery({ onSelectAlbum }: { onSelectAlbum: (id: number) => void }
         </div>
       )}
 
+      {/* Photo Request Modal */}
+      {showRequestModal !== null && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[1001] flex items-center justify-center p-5">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-zinc-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-xl">
+                  <Camera size={16} className="text-orange-500" />
+                </div>
+                <h2 className="text-base font-semibold text-slate-800 dark:text-zinc-100">ขอถ่ายรูปใหม่</h2>
+              </div>
+              <button onClick={closeRequestModal} className="p-1 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg text-slate-400 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">บันทึกเพิ่มเติม</label>
+                <textarea
+                  value={requestNote}
+                  onChange={e => setRequestNote(e.target.value)}
+                  placeholder="อธิบายรูปที่ต้องการ..."
+                  rows={3}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all dark:text-zinc-100 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">แนบรูปตัวอย่าง (ไม่บังคับ)</label>
+                {requestSamplePreview ? (
+                  <div className="relative">
+                    <img src={requestSamplePreview} className="w-full h-40 object-cover rounded-xl border border-slate-200 dark:border-zinc-700" alt="ตัวอย่าง" />
+                    <button
+                      onClick={() => { URL.revokeObjectURL(requestSamplePreview!); setRequestSampleFile(null); setRequestSamplePreview(null) }}
+                      className="absolute top-2 right-2 w-7 h-7 bg-black/50 hover:bg-rose-500 text-white rounded-full flex items-center justify-center transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-xl cursor-pointer hover:border-orange-400 hover:bg-orange-50/50 dark:hover:bg-orange-900/10 transition-all">
+                    <Upload size={20} className="text-slate-300 mb-1" />
+                    <span className="text-xs text-slate-400">คลิกเพื่อแนบรูปตัวอย่าง</span>
+                    <input type="file" accept="image/*" hidden onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (file) { setRequestSampleFile(file); setRequestSamplePreview(URL.createObjectURL(file)) }
+                    }} />
+                  </label>
+                )}
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-800/40 flex gap-3">
+              <button onClick={closeRequestModal}
+                className="flex-1 px-4 py-2.5 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 text-sm font-medium rounded-xl hover:bg-white dark:hover:bg-zinc-800 transition-colors">
+                ยกเลิก
+              </button>
+              <button onClick={handleRequestSubmit} disabled={requestSubmitting}
+                className="flex-1 px-4 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 dark:disabled:bg-orange-800 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-orange-500/20">
+                {requestSubmitting ? 'กำลังส่ง...' : 'ส่งคำขอ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Download progress overlay */}
       {dlProgress.active && <DownloadProgressOverlay dl={dlProgress} />}
     </div>
@@ -865,6 +1011,7 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
   const [showUploadPanel,   setShowUploadPanel]    = useState(false)
   const [pendingFiles,      setPendingFiles]       = useState<File[]>([])
   const [previews,          setPreviews]           = useState<string[]>([])
+  const [uploadSuccess,     setUploadSuccess]      = useState(false)
   const [dlProgress,        setDlProgress]         = useState<DlProgress>(DL_IDLE)
 
   const dragStart       = useRef({ x: 0, y: 0 })
@@ -970,9 +1117,15 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
     setUploading(true)
     try {
       for (const file of pendingFiles) await albumApi.uploadPhoto(albumId, file)
-      closeUploadPanel()
-    } catch {}
-    finally { setUploading(false) }
+      setUploading(false)
+      setUploadSuccess(true)
+      setTimeout(() => {
+        setUploadSuccess(false)
+        closeUploadPanel()
+      }, 1000)
+    } catch {
+      setUploading(false)
+    }
   }
 
   const toggleSelectAll = () => {
@@ -1273,13 +1426,19 @@ function AlbumDetail({ albumId, onBack }: { albumId: number; onBack: () => void 
               </div>
             </div>
             <div className="px-5 py-4 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-800/40">
-              <button onClick={handleUpload} disabled={uploading}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors">
-                {uploading
-                  ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปโหลด...</>
-                  : `อัปโหลด ${pendingFiles.length} รูปภาพ`
-                }
-              </button>
+              {uploadSuccess ? (
+                <div className="w-full py-3 bg-emerald-500 text-white text-sm font-semibold rounded-xl flex items-center justify-center gap-2">
+                  <CheckCircle2 size={16} /> อัปโหลดสำเร็จ!
+                </div>
+              ) : (
+                <button onClick={handleUpload} disabled={uploading}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors">
+                  {uploading
+                    ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปโหลด...</>
+                    : `อัปโหลด ${pendingFiles.length} รูปภาพ`
+                  }
+                </button>
+              )}
             </div>
           </div>
         </div>
