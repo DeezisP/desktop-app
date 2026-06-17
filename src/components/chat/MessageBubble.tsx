@@ -91,7 +91,7 @@ export const MessageBubble = memo(function MessageBubble({
       )}
 
       <div className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-1`}>
-        {showSender && !isOwn && (
+        {showSender && (
           <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 px-1 mb-0.5">
             {senderName}
           </span>

@@ -125,20 +125,20 @@ export const ChatMessageList = memo(function ChatMessageList({
         items.push(<DateSeparator key={`sep-${msg.sentAt}`} label={formatDateSeparator(msg.sentAt)} />)
       }
 
-      const isOwn = user
-        ? msg.sender?.id === user.id
-        : false
+      // Admin messages (any sender) → right side; guest messages → left side
+      const isOwn = msg.sender !== null
+      const isMyMessage = user ? msg.sender?.id === user.id : false
 
-      // Show sender label if different from previous sender or after date sep
+      // Show sender label when sender changes — skip for own messages
       const showSender =
-        !isOwn &&
+        !isMyMessage &&
         (prevMsg === null ||
           !isSameDay(prevMsg.sentAt, msg.sentAt) ||
           prevMsg.sender?.id !== msg.sender?.id ||
           prevMsg.guestSenderId !== msg.guestSenderId)
 
-      // Group adjacent own messages (no gap between them)
-      const nextIsOwn = next && user ? next.sender?.id === user.id : false
+      // Group adjacent messages from the same side
+      const nextIsOwn = next ? next.sender !== null : false
       const isLastInGroup = !next || nextIsOwn !== isOwn || !isSameDay(msg.sentAt, next.sentAt)
       void isLastInGroup
 
@@ -148,7 +148,7 @@ export const ChatMessageList = memo(function ChatMessageList({
           message={msg}
           isOwn={isOwn}
           showSender={showSender}
-          isRead={isOwn && msg.id > 0 && msg.id <= partnerLastReadId}
+          isRead={isMyMessage && msg.id > 0 && msg.id <= partnerLastReadId}
           onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
         />,
       )
