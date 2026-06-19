@@ -105,6 +105,15 @@
     background: #52525b;
   }
 
+  /* Hides the scrollbar while keeping the element scrollable */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
   /* ── Theme colour-scheme hints (used by browser scrollbar / form controls) ── */
   html {
     color-scheme: light;

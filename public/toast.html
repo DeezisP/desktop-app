@@ -16,14 +16,17 @@
 
   .wrap {
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
     justify-content: flex-end;
     width: 100%;
     height: 100%;
-    padding: 6px;
+    padding: 8px;
+    gap: 8px;
   }
 
   .toast {
+    flex-shrink: 0;
+    height: 72px;
     width: 100%;
     display: flex;
     align-items: center;
@@ -130,27 +133,11 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="toast" id="toast">
-    <div class="avatar" id="avatar">AB</div>
-    <div class="body">
-      <div class="sender" id="sender">ผู้ส่ง</div>
-      <div class="message" id="message">ข้อความ...</div>
-    </div>
-    <button class="close-btn" id="closeBtn">✕</button>
-    <div class="progress" id="progress"></div>
-  </div>
-</div>
+<div class="wrap" id="wrap"></div>
 
 <script>
-  var currentRoomId = 0
-  var hideTimer = null
-  var progressTimer = null
-
-  function clearTimers() {
-    if (hideTimer)    { clearTimeout(hideTimer);    hideTimer    = null }
-    if (progressTimer){ clearTimeout(progressTimer); progressTimer = null }
-  }
+  var TOAST_DURATION = 4000
+  var rendered = {}  // toastId -> { el, count, timer }
 
   function restartAnim(el, anim) {
     el.style.animation = 'none'
@@ -158,47 +145,116 @@
     el.style.animation = anim
   }
 
-  function dismiss() {
-    clearTimers()
-    var toast = document.getElementById('toast')
-    restartAnim(toast, 'slide-out 280ms ease-in both')
-    progressTimer = setTimeout(function() {
-      if (window.toastAPI) window.toastAPI.done()
-    }, 290)
-  }
+  function buildToastEl(item) {
+    var el = document.createElement('div')
+    el.className = 'toast'
+    el.dataset.toastId = item.toastId
 
-  document.getElementById('toast').addEventListener('click', function(e) {
-    if (e.target.id === 'closeBtn') return
-    clearTimers()
-    if (window.toastAPI) window.toastAPI.click(currentRoomId)
-    dismiss()
-  })
+    var avatar = document.createElement('div')
+    avatar.className = 'avatar'
 
-  document.getElementById('closeBtn').addEventListener('click', function(e) {
-    e.stopPropagation()
-    dismiss()
-  })
+    var body = document.createElement('div')
+    body.className = 'body'
+    var sender = document.createElement('div')
+    sender.className = 'sender'
+    var message = document.createElement('div')
+    message.className = 'message'
+    body.appendChild(sender)
+    body.appendChild(message)
 
-  if (window.toastAPI) {
-    window.toastAPI.onShow(function(payload) {
-      console.log('[toast.html] onShow room=' + payload.roomId + ' sender="' + payload.senderName + '"')
-      currentRoomId = payload.roomId
+    var closeBtn = document.createElement('button')
+    closeBtn.className = 'close-btn'
+    closeBtn.textContent = '✕'
 
-      document.getElementById('avatar').textContent    = payload.senderInitials
-      document.getElementById('avatar').style.background = payload.avatarColor
-      document.getElementById('sender').textContent    = payload.senderName
-      document.getElementById('message').textContent   = payload.messagePreview
+    var progress = document.createElement('div')
+    progress.className = 'progress'
 
-      clearTimers()
-      var toast    = document.getElementById('toast')
-      var progress = document.getElementById('progress')
+    el.appendChild(avatar)
+    el.appendChild(body)
+    el.appendChild(closeBtn)
+    el.appendChild(progress)
 
-      restartAnim(toast,    'slide-in 320ms cubic-bezier(0.34,1.2,0.64,1) both')
-      restartAnim(progress, 'shrink 4000ms linear both')
-
-      hideTimer = setTimeout(dismiss, 4000)
+    el.addEventListener('click', function (e) {
+      if (e.target === closeBtn) return
+      if (window.toastAPI) window.toastAPI.click(item.roomId)
+      dismiss(item.toastId)
+    })
+    closeBtn.addEventListener('click', function (e) {
+      e.stopPropagation()
+      dismiss(item.toastId)
     })
 
+    return { el: el, avatar: avatar, sender: sender, message: message, progress: progress }
+  }
+
+  function paint(refs, item) {
+    refs.avatar.textContent = item.senderInitials
+    refs.avatar.style.background = item.avatarColor
+    refs.sender.textContent = item.senderName
+    refs.message.textContent = item.messagePreview
+  }
+
+  function startTimer(toastId, entry) {
+    if (entry.timer) clearTimeout(entry.timer)
+    restartAnim(entry.refs.progress, 'shrink ' + TOAST_DURATION + 'ms linear both')
+    entry.timer = setTimeout(function () { dismiss(toastId) }, TOAST_DURATION)
+  }
+
+  function dismiss(toastId) {
+    var entry = rendered[toastId]
+    if (!entry || entry.dismissing) return
+    entry.dismissing = true
+    if (entry.timer) clearTimeout(entry.timer)
+    restartAnim(entry.refs.el, 'slide-out 280ms ease-in both')
+    setTimeout(function () {
+      if (entry.refs.el.parentNode) entry.refs.el.parentNode.removeChild(entry.refs.el)
+      delete rendered[toastId]
+      if (window.toastAPI) window.toastAPI.itemDone(toastId)
+    }, 280)
+  }
+
+  function render(items) {
+    var wrap = document.getElementById('wrap')
+    var incomingIds = {}
+
+    items.forEach(function (item) {
+      incomingIds[item.toastId] = true
+      var entry = rendered[item.toastId]
+
+      if (!entry) {
+        var refs = buildToastEl(item)
+        wrap.appendChild(refs.el)
+        entry = { refs: refs, count: item.count, timer: null, dismissing: false }
+        rendered[item.toastId] = entry
+        paint(refs, item)
+        restartAnim(refs.el, 'slide-in 320ms cubic-bezier(0.34,1.2,0.64,1) both')
+        startTimer(item.toastId, entry)
+      } else if (item.count !== entry.count) {
+        // Merged a new message into an already-visible toast — refresh
+        // content and restart its countdown, but leave its slot in the stack.
+        entry.count = item.count
+        paint(entry.refs, item)
+        startTimer(item.toastId, entry)
+      }
+    })
+
+    // Defensive cleanup if main process ever drops an id we didn't dismiss
+    // ourselves (e.g. evicted past the max-visible cap).
+    Object.keys(rendered).forEach(function (toastId) {
+      if (!incomingIds[toastId]) {
+        var entry = rendered[toastId]
+        if (entry.timer) clearTimeout(entry.timer)
+        if (entry.refs.el.parentNode) entry.refs.el.parentNode.removeChild(entry.refs.el)
+        delete rendered[toastId]
+      }
+    })
+  }
+
+  if (window.toastAPI) {
+    window.toastAPI.onSync(function (items) {
+      console.log('[toast.html] sync count=' + items.length)
+      render(items)
+    })
     console.log('[toast.html] initialized')
   } else {
     console.error('[toast.html] window.toastAPI not available — preload failed')

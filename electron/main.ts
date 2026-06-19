@@ -43,14 +43,28 @@ export type ChatToastPayload = {
 }
 
 // ── Toast window state ────────────────────────────────────────────────────────
-// Single managed window. Every new message updates the toast IMMEDIATELY —
-// no queue, no waiting for previous timeout. The renderer restarts its own
-// timer on each toast:show so latest message always wins.
+// Single managed window sized to hold a vertical stack of toast cards.
+// Each incoming message becomes its own stacked item with an independent
+// lifetime — a new toast no longer cuts off one that's still showing.
+// Repeated messages from the SAME room update that room's existing item
+// (and reset its timer) instead of stacking duplicates.
+type ToastItem = ChatToastPayload & { toastId: string; count: number }
+
 let toastWindow:      BrowserWindow | null = null
 let toastWindowReady: boolean = false
-let pendingToast:     ChatToastPayload | null = null  // stored while window loads
-let toastRoomId:      number | null = null            // room currently displayed
-let toastRoomCount:   number = 0                     // rapid-message counter
+let pendingToasts:    ChatToastPayload[] = []  // queued while window loads
+let toastItems:       ToastItem[] = []
+
+const TOAST_WIDTH       = 380
+const TOAST_ITEM_HEIGHT = 72
+const TOAST_GAP         = 8
+const TOAST_PADDING     = 8
+const TOAST_MAX_VISIBLE = 4
+
+function computeToastWindowHeight(itemCount: number): number {
+  const n = Math.max(1, Math.min(itemCount, TOAST_MAX_VISIBLE))
+  return TOAST_PADDING * 2 + n * TOAST_ITEM_HEIGHT + (n - 1) * TOAST_GAP
+}
 
 // ── Token persistence (survives app restarts) ─────────────────────────────────
 // Buffers are stored as base64 in a 0600 JSON file inside userData.
@@ -164,10 +178,10 @@ function updateBadgeState(count: number): void {
 // ── Toast notification window ─────────────────────────────────────────────────
 // Temporary overlay that slides in from the bottom-right when a new message
 // arrives and the app is not focused (LINE / Telegram / Slack style).
-// Each toast stays 4 s then slides out. Multiple messages are queued.
+// Each toast stays 4 s then slides out independently — new ones stack above
+// rather than replacing/overlapping a toast that's still showing.
 
-function getToastPosition(): { x: number; y: number } {
-  const W = 380, H = 88
+function getToastPosition(height: number): { x: number; y: number } {
   let disp: Electron.Display
   try {
     disp = mainWindow && !mainWindow.isDestroyed()
@@ -177,7 +191,9 @@ function getToastPosition(): { x: number; y: number } {
     disp = screen.getPrimaryDisplay()
   }
   const { x: dx, y: dy, width: dw, height: dh } = disp.workArea
-  return { x: dx + dw - W - 16, y: dy + dh - H - 16 }
+  // Bottom-right anchored — the stack grows upward as items are added, so
+  // only `y` shifts with height while the bottom edge stays fixed.
+  return { x: dx + dw - TOAST_WIDTH - 16, y: dy + dh - height - 16 }
 }
 
 function createToastWindow(): void {
@@ -186,12 +202,13 @@ function createToastWindow(): void {
   const preloadPath = path.join(__dirname, 'toast-preload.mjs')
   log(`[toast] creating window — preload=${preloadPath} exists=${fs.existsSync(preloadPath)}`)
 
-  const { x, y } = getToastPosition()
+  const initialHeight = computeToastWindowHeight(1)
+  const { x, y } = getToastPosition(initialHeight)
   toastWindowReady = false
 
   toastWindow = new BrowserWindow({
-    width:           380,
-    height:          88,
+    width:           TOAST_WIDTH,
+    height:          initialHeight,
     x, y,
     frame:           false,
     transparent:     true,
@@ -220,11 +237,9 @@ function createToastWindow(): void {
   toastWindow.webContents.once('did-finish-load', () => {
     toastWindowReady = true
     log('[toast] did-finish-load — renderer ready')
-    if (pendingToast) {
-      const p = pendingToast
-      pendingToast = null
-      showToastImmediate(p)
-    }
+    const queued = pendingToasts
+    pendingToasts = []
+    queued.forEach((p) => showToastImmediate(p))
   })
 
   toastWindow.webContents.on('did-fail-load', (_ev, code, desc) => {
@@ -240,6 +255,7 @@ function createToastWindow(): void {
   toastWindow.on('closed', () => {
     toastWindow      = null
     toastWindowReady = false
+    toastItems       = []
     log('[toast] window closed/destroyed')
   })
 
@@ -260,28 +276,50 @@ function createToastWindow(): void {
 
 function showToastImmediate(payload: ChatToastPayload): void {
   if (!toastWindowReady || !toastWindow || toastWindow.isDestroyed()) {
-    pendingToast = payload
+    pendingToasts.push(payload)
     log(`[toast] pending room=${payload.roomId}`)
     return
   }
-  if (toastRoomId === payload.roomId) {
-    toastRoomCount++
-    if (toastRoomCount > 1) {
-      payload = { ...payload, messagePreview: `${toastRoomCount} ข้อความใหม่` }
-    }
+
+  const existing = toastItems.find((t) => t.roomId === payload.roomId)
+  if (existing) {
+    // Repeated messages from a room already showing update that item in
+    // place (and refresh its timer) instead of stacking a duplicate.
+    existing.count++
+    existing.senderName     = payload.senderName
+    existing.senderInitials = payload.senderInitials
+    existing.avatarColor    = payload.avatarColor
+    existing.messagePreview = existing.count > 1
+      ? `${existing.count} ข้อความใหม่`
+      : payload.messagePreview
+    log(`[toast] updated room=${payload.roomId} count=${existing.count}`)
   } else {
-    toastRoomId    = payload.roomId
-    toastRoomCount = 1
+    if (toastItems.length >= TOAST_MAX_VISIBLE) toastItems.shift()
+    toastItems.push({ ...payload, toastId: `${payload.roomId}-${Date.now()}`, count: 1 })
+    log(`[toast] stacked room=${payload.roomId} sender="${payload.senderName}" total=${toastItems.length}`)
   }
-  const { x, y } = getToastPosition()
-  toastWindow.setPosition(x, y)
-  toastWindow.webContents.send('toast:show', payload)
-  if (!toastWindow.isVisible()) {
-    toastWindow.showInactive()
-    log(`[toast] shown room=${payload.roomId} sender="${payload.senderName}"`)
-  } else {
-    log(`[toast] updated room=${payload.roomId} count=${toastRoomCount}`)
+
+  syncToastWindow()
+}
+
+function removeToastItem(toastId: string): void {
+  toastItems = toastItems.filter((t) => t.toastId !== toastId)
+  syncToastWindow()
+}
+
+function syncToastWindow(): void {
+  if (!toastWindowReady || !toastWindow || toastWindow.isDestroyed()) return
+
+  if (toastItems.length === 0) {
+    if (toastWindow.isVisible()) toastWindow.hide()
+    return
   }
+
+  const height = computeToastWindowHeight(toastItems.length)
+  const { x, y } = getToastPosition(height)
+  toastWindow.setBounds({ x, y, width: TOAST_WIDTH, height })
+  toastWindow.webContents.send('toast:sync', toastItems)
+  if (!toastWindow.isVisible()) toastWindow.showInactive()
 }
 
 // ── Global main-process error handlers ───────────────────────────────────────
@@ -720,21 +758,17 @@ ipcMain.handle('chat:toast', (_ev, payload: ChatToastPayload): void => {
   showToastImmediate(payload)
 })
 
-ipcMain.on('toast:done', () => {
-  // Renderer's 4 s timer fired — hide the window and reset room tracking
-  toastRoomId    = null
-  toastRoomCount = 0
-  if (toastWindow && !toastWindow.isDestroyed() && toastWindow.isVisible()) {
-    toastWindow.hide()
-  }
-  log('[toast] done — hidden')
+ipcMain.on('toast:item-done', (_ev, toastId: string) => {
+  // This item's own 4 s timer fired in the renderer — drop it from the
+  // stack and resize/reposition the window for the remaining items.
+  removeToastItem(toastId)
+  log(`[toast] item done — removed ${toastId}`)
 })
 
 ipcMain.on('toast:click', (_ev, roomId: number) => {
   log(`[toast] clicked room=${roomId} — focusing main window`)
-  toastRoomId    = null
-  toastRoomCount = 0
-  if (toastWindow && !toastWindow.isDestroyed()) toastWindow.hide()
+  toastItems = toastItems.filter((t) => t.roomId !== roomId)
+  syncToastWindow()
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
