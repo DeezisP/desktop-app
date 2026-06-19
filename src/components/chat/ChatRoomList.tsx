@@ -26,13 +26,13 @@ function formatRelativeTime(iso: string | null): string {
 const RoomItem = memo(function RoomItem({
   room,
   isActive,
-  onClick,
+  onSelect,
   onDelete,
 }: {
   room: ChatRoom
   isActive: boolean
-  onClick: () => void
-  onDelete?: () => void
+  onSelect: (roomId: number) => void
+  onDelete?: (roomId: number) => void
 }) {
   const displayName = room.name?.trim()
     ? room.name
@@ -45,7 +45,7 @@ const RoomItem = memo(function RoomItem({
       isActive ? 'bg-blue-50 dark:bg-blue-950/50' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'
     }`}>
       <button
-        onClick={onClick}
+        onClick={() => onSelect(room.id)}
         className="flex-1 flex items-center gap-2.5 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       >
       {/* Avatar */}
@@ -97,7 +97,7 @@ const RoomItem = memo(function RoomItem({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            if (window.confirm(`ลบห้องสนทนา "${displayName}" ใช่ไหม?`)) onDelete()
+            if (window.confirm(`ลบห้องสนทนา "${displayName}" ใช่ไหม?`)) onDelete(room.id)
           }}
           className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-1.5 mr-1.5 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
           title="ลบห้องสนทนา"
@@ -156,8 +156,8 @@ export const ChatRoomList = memo(function ChatRoomList({ onSelectRoom, onDeleteR
             key={room.id}
             room={room}
             isActive={room.id === activeRoomId}
-            onClick={() => onSelectRoom(room.id)}
-            onDelete={onDeleteRoom ? () => onDeleteRoom(room.id) : undefined}
+            onSelect={onSelectRoom}
+            onDelete={onDeleteRoom}
           />
         ))}
       </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react'
+import { memo, useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent, type ClipboardEvent } from 'react'
 import { Send, Paperclip, X, FileText } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
@@ -8,7 +8,7 @@ interface Props {
   disabled?: boolean
 }
 
-export function ChatInput({ onSend, onTyping, disabled }: Props) {
+export const ChatInput = memo(function ChatInput({ onSend, onTyping, disabled }: Props) {
   const [value, setValue] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -150,4 +150,4 @@ export function ChatInput({ onSend, onTyping, disabled }: Props) {
       </div>
     </div>
   )
-}
+})

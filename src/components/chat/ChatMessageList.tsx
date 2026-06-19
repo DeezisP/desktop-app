@@ -74,19 +74,35 @@ export const ChatMessageList = memo(function ChatMessageList({
   const prevScrollHeightRef = useRef(0)
   const isNearBottomRef = useRef(true)
   const initialScrollDoneRef = useRef(false)
+  const lastTailIdRef = useRef<number | string | null>(null)
 
-  // Scroll to bottom on initial load and new own messages
+  // Scroll to bottom on initial load, on our own outgoing messages (even if
+  // currently reading older history), and otherwise only when already near
+  // the bottom — never yanks the view while someone is scrolled up reading.
   useEffect(() => {
+    const last = messages[messages.length - 1]
+    // clientMessageId (not id) is the stable identity here — id flips from
+    // 0 to the real value when an optimistic placeholder gets confirmed,
+    // which must NOT register as "a new message arrived".
+    const tailId = last ? last.clientMessageId || last.id : null
+    const isNewTail = tailId !== null && tailId !== lastTailIdRef.current
+    lastTailIdRef.current = tailId
+
     if (!initialScrollDoneRef.current && messages.length > 0) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' })
       initialScrollDoneRef.current = true
+      isNearBottomRef.current = true
       return
     }
-    // Auto-scroll only when already near bottom
-    if (isNearBottomRef.current) {
+
+    if (!isNewTail) return
+
+    const lastIsMine = last && user ? last.sender?.id === user.id : false
+    if (isNearBottomRef.current || lastIsMine) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      isNearBottomRef.current = true
     }
-  }, [messages.length])
+  }, [messages, user])
 
   // After prepending older messages, restore scroll position so it doesn't jump
   useEffect(() => {
@@ -144,12 +160,15 @@ export const ChatMessageList = memo(function ChatMessageList({
 
       items.push(
         <MessageBubble
-          key={msg.id || msg.clientMessageId}
+          // clientMessageId stays stable across the pending → confirmed
+          // transition (id flips from 0 to the real value); keying on it
+          // first avoids unmounting/remounting the bubble when that happens.
+          key={msg.clientMessageId || msg.id}
           message={msg}
           isOwn={isOwn}
           showSender={showSender}
           isRead={isMyMessage && msg.id > 0 && msg.id <= partnerLastReadId}
-          onDelete={onDeleteMessage ? () => onDeleteMessage(msg.id) : undefined}
+          onDelete={onDeleteMessage}
         />,
       )
 

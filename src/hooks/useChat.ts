@@ -4,9 +4,38 @@ import { useChatStore } from '../store/chatStore'
 import { useAuthStore } from '../store/authStore'
 import { chatApi } from '../api/chatApi'
 import type { ChatMessage, TypingBroadcast, PresenceBroadcast, OutboundMessage } from '../types/chat'
+import type { AuthUser } from '../types/auth'
 
 const HEARTBEAT_INTERVAL = 20_000
 const TYPING_DEBOUNCE_MS = 2_500
+
+// id: 0 marks a locally-created placeholder not yet confirmed by the
+// server — mirrors the `msg.id > 0` convention already used for read
+// receipts elsewhere in this file.
+function buildOptimisticMessage(
+  roomId: number,
+  clientMessageId: string,
+  text: string,
+  user: AuthUser,
+  fileUrl: string | null,
+  fileType: string | null,
+): ChatMessage {
+  return {
+    id: 0,
+    clientMessageId,
+    room: { id: roomId },
+    sender: { id: user.id, username: user.username, firstname: user.firstname ?? user.username, role: user.role },
+    guestSenderId: null,
+    messageText: text || (fileUrl ? 'Sent an attachment' : ''),
+    sentAt: new Date().toISOString(),
+    isRead: false,
+    fileUrl,
+    fileType,
+    isDeleted: false,
+    isEdited: false,
+    pending: true,
+  }
+}
 
 // ── Payload validators ────────────────────────────────────────────────────────
 
@@ -44,23 +73,23 @@ export function useChat() {
   const user = useAuthStore((s) => s.user)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
 
-  const {
-    activeRoomId,
-    outboundQueue,
-    setRooms,
-    appendMessage,
-    softDeleteMessage,
-    setTyping,
-    setPresence,
-    clearUnread,
-    prependMessages,
-    setLoadingRooms,
-    setLoadingMessages,
-    addToQueue,
-    removeFromQueue,
-    setPartnerLastReadId,
-    removeRoom,
-  } = useChatStore()
+  const activeRoomId         = useChatStore((s) => s.activeRoomId)
+  const outboundQueue        = useChatStore((s) => s.outboundQueue)
+  const setRooms             = useChatStore((s) => s.setRooms)
+  const addOptimisticMessage = useChatStore((s) => s.addOptimisticMessage)
+  const upsertMessage        = useChatStore((s) => s.upsertMessage)
+  const markMessageFailed    = useChatStore((s) => s.markMessageFailed)
+  const softDeleteMessage    = useChatStore((s) => s.softDeleteMessage)
+  const setTyping            = useChatStore((s) => s.setTyping)
+  const setPresence          = useChatStore((s) => s.setPresence)
+  const clearUnread          = useChatStore((s) => s.clearUnread)
+  const prependMessages      = useChatStore((s) => s.prependMessages)
+  const setLoadingRooms      = useChatStore((s) => s.setLoadingRooms)
+  const setLoadingMessages   = useChatStore((s) => s.setLoadingMessages)
+  const addToQueue           = useChatStore((s) => s.addToQueue)
+  const removeFromQueue      = useChatStore((s) => s.removeFromQueue)
+  const setPartnerLastReadId = useChatStore((s) => s.setPartnerLastReadId)
+  const removeRoom           = useChatStore((s) => s.removeRoom)
 
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -120,9 +149,17 @@ export function useChat() {
     async (roomId: number, content: string, file?: File) => {
       const trimmed = content.trim()
       if (!trimmed && !file) return
+      if (!user) return
 
       const clientMessageId = crypto.randomUUID()
       const msg: OutboundMessage = { clientMessageId, roomId, content: trimmed }
+
+      // Local image preview shown instantly while the real upload runs in
+      // the background; revoked once we have the permanent server URL.
+      const localPreviewUrl = file?.type.startsWith('image/') ? URL.createObjectURL(file) : null
+      addOptimisticMessage(
+        buildOptimisticMessage(roomId, clientMessageId, trimmed, user, localPreviewUrl, file?.type ?? null),
+      )
 
       if (!file && !warehouseStompClient.isConnected()) {
         addToQueue(msg)
@@ -136,14 +173,19 @@ export function useChat() {
           const up = await chatApi.uploadFile(file)
           fileUrl = up.fileUrl
           fileType = up.fileType || file.type
+          if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl)
         }
-        await chatApi.sendMessage(roomId, trimmed, clientMessageId, fileUrl, fileType)
+        const confirmed = await chatApi.sendMessage(roomId, trimmed, clientMessageId, fileUrl, fileType)
+        // Resolve immediately from the response — don't wait on the STOMP
+        // echo, which may be delayed or (in theory) never arrive.
+        upsertMessage(confirmed)
       } catch (err) {
         console.error('[useChat] sendMessage failed', err)
         if (!file) addToQueue(msg)
+        else markMessageFailed(clientMessageId)
       }
     },
-    [addToQueue],
+    [addToQueue, addOptimisticMessage, upsertMessage, markMessageFailed, user],
   )
 
   // ── Drain offline queue when connection restores ────────────────────────────
@@ -153,13 +195,14 @@ export function useChat() {
     const queue = [...outboundQueue]
     queue.forEach(async ({ clientMessageId, roomId, content }) => {
       try {
-        await chatApi.sendMessage(roomId, content, clientMessageId)
+        const confirmed = await chatApi.sendMessage(roomId, content, clientMessageId)
+        upsertMessage(confirmed)
         removeFromQueue(clientMessageId)
       } catch {
-        // Will retry on next reconnect
+        // Will retry on next reconnect — placeholder stays pending
       }
     })
-  }, [isConnected, outboundQueue, removeFromQueue])
+  }, [isConnected, outboundQueue, removeFromQueue, upsertMessage])
 
   // ── Gap-fill after reconnect ────────────────────────────────────────────────
 
@@ -170,7 +213,7 @@ export function useChat() {
       try {
         const raw = await chatApi.getMessagesSince(roomId, sinceId)
         const messages = Array.isArray(raw) ? raw : []
-        messages.forEach((m) => appendMessage(m))
+        messages.forEach((m) => upsertMessage(m))
         if (messages.length > 0) {
           lastSeenMessageRef.current[roomId] = messages[messages.length - 1].id
         }
@@ -178,7 +221,7 @@ export function useChat() {
         console.error('[useChat] gap-fill failed for room', roomId, err)
       }
     },
-    [appendMessage],
+    [upsertMessage],
   )
 
   // ── Send typing indicator ───────────────────────────────────────────────────
@@ -321,7 +364,7 @@ export function useChat() {
           if (payload?.action === 'DELETE_MESSAGE' && payload.messageId != null) {
             softDeleteMessage(Number(payload.messageId))
           } else if (isValidChatMessage(payload)) {
-            appendMessage(payload)
+            upsertMessage(payload)
             lastSeenMessageRef.current[activeRoomId] = payload.id
           }
         } catch {
@@ -376,7 +419,7 @@ export function useChat() {
         lastTypingRoomRef.current = null
       }
     }
-  }, [activeRoomId, appendMessage, setTyping, gapFill, sendTyping, user, setPartnerLastReadId, loadPartnerReadState])
+  }, [activeRoomId, upsertMessage, setTyping, gapFill, sendTyping, user, setPartnerLastReadId, loadPartnerReadState])
 
   // NOTE: initial loadRooms() is handled by useGlobalChatMessages in Layout.
 

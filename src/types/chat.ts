@@ -22,6 +22,10 @@ export interface ChatMessage {
   fileType: string | null
   isDeleted: boolean
   isEdited: boolean
+  /** Locally-created placeholder awaiting server confirmation — never set by the backend. */
+  pending?: boolean
+  /** The optimistic send failed and is not being retried automatically. */
+  failed?: boolean
 }
 
 export interface ChatMember {

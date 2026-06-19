@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { Check, CheckCheck, Pencil, Trash2, FileText, Download } from 'lucide-react'
+import { Check, CheckCheck, Pencil, Trash2, FileText, Download, Loader2, AlertCircle } from 'lucide-react'
 import type { ChatMessage } from '../../types/chat'
 import { ImageLightbox } from './ImageLightbox'
 
@@ -27,7 +27,7 @@ interface Props {
   isOwn: boolean
   showSender: boolean
   isRead?: boolean
-  onDelete?: () => void
+  onDelete?: (messageId: number) => void
 }
 
 function formatTime(iso: string): string {
@@ -90,7 +90,7 @@ export const MessageBubble = memo(function MessageBubble({
         <ImageLightbox src={resolvedUrl} onClose={() => setLightboxOpen(false)} />
       )}
 
-      <div className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-1`}>
+      <div className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-1 ${message.pending ? 'opacity-60' : ''}`}>
         {showSender && (
           <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 px-1 mb-0.5">
             {senderName}
@@ -98,12 +98,12 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         <div className={`flex items-end gap-1 max-w-[72%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}`}>
-          {/* Delete button — always slightly visible, full opacity on hover */}
-          {onDelete && (
+          {/* Delete button — only for confirmed messages; pending placeholders have no real id yet */}
+          {onDelete && message.id > 0 && !message.pending && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                if (window.confirm('ลบข้อความนี้ใช่ไหม?')) onDelete()
+                if (window.confirm('ลบข้อความนี้ใช่ไหม?')) onDelete(message.id)
               }}
               className="opacity-20 hover:opacity-100 p-1 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-all flex-shrink-0 self-center"
               title="ลบข้อความ"
@@ -173,7 +173,11 @@ export const MessageBubble = memo(function MessageBubble({
             </span>
             {isOwn && (
               <span className="text-[10px]">
-                {read ? (
+                {message.failed ? (
+                  <AlertCircle size={11} className="text-red-500" />
+                ) : message.pending ? (
+                  <Loader2 size={11} className="text-zinc-400 animate-spin" />
+                ) : read ? (
                   <CheckCheck size={11} className="text-blue-400" />
                 ) : (
                   <Check size={11} className="text-zinc-400" />

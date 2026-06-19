@@ -36,8 +36,9 @@ interface ChatState {
   removeRoom: (roomId: number) => void
   setActiveRoom: (roomId: number | null) => void
   prependMessages: (roomId: number, messages: ChatMessage[], nextCursor: string | null, hasMore: boolean) => void
-  appendMessage: (message: ChatMessage) => void
-  replaceMessage: (clientMessageId: string, message: ChatMessage) => void
+  addOptimisticMessage: (message: ChatMessage) => void
+  upsertMessage: (message: ChatMessage) => void
+  markMessageFailed: (clientMessageId: string) => void
   softDeleteMessage: (messageId: number) => void
   updateRoomPreview: (roomId: number, lastMessage: string, lastMessageAt: string) => void
   decrementUnread: (roomId: number) => void
@@ -92,37 +93,71 @@ export const useChatStore = create<ChatState>((set) => ({
     })
   },
 
-  appendMessage(message) {
+  // Inserts a locally-created placeholder (pending: true) the instant the
+  // user hits send — before any network round-trip — so it shows up
+  // immediately, the way Telegram/WhatsApp/ChatGPT do.
+  addOptimisticMessage(message) {
     set((s) => {
       const roomId = message?.room?.id
       if (!roomId) return {}
       const existing = (s.messages ?? {})[roomId] ?? []
-      if (existing.some((m) => m.id === message.id || m.clientMessageId === message.clientMessageId)) {
-        return {}
-      }
       const updated = sortMessages([...existing, message])
+      return { messages: { ...(s.messages ?? {}), [roomId]: updated } }
+    })
+  },
+
+  // Single entry point for any message coming back from the server
+  // (STOMP broadcast, gap-fill, retry-after-reconnect). If it matches a
+  // still-pending optimistic placeholder by clientMessageId, it replaces
+  // that placeholder IN PLACE (no jump in position); otherwise it's a
+  // message from someone else and gets appended normally. Either way,
+  // every other message in the room keeps its exact object reference.
+  upsertMessage(message) {
+    set((s) => {
+      const roomId = message?.room?.id
+      if (!roomId) return {}
+      const existing = (s.messages ?? {})[roomId] ?? []
+
+      if (existing.some((m) => m.id === message.id)) return {}
+
+      const placeholderIndex = existing.findIndex(
+        (m) => m.pending && m.clientMessageId === message.clientMessageId,
+      )
+
+      let updated: ChatMessage[]
+      if (placeholderIndex !== -1) {
+        updated = existing.slice()
+        updated[placeholderIndex] = message
+      } else {
+        updated = [...existing, message]
+      }
+
       const rooms = (s.rooms ?? []).map((r) =>
         r.id === roomId
           ? { ...r, lastMessage: message.messageText, lastMessageAt: message.sentAt }
           : r,
       )
       return {
-        messages: { ...(s.messages ?? {}), [roomId]: updated },
+        messages: { ...(s.messages ?? {}), [roomId]: sortMessages(updated) },
         rooms,
       }
     })
   },
 
-  replaceMessage(clientMessageId, message) {
+  // The send request itself failed (not just offline) — mark the
+  // placeholder so the UI can show "failed to send" instead of leaving it
+  // spinning in "pending" forever.
+  markMessageFailed(clientMessageId) {
     set((s) => {
-      const roomId = message?.room?.id
-      if (!roomId) return {}
-      const existing = (s.messages ?? {})[roomId] ?? []
-      if (existing.some((m) => m.id === message.id)) return {}
-      const updated = existing.map((m) =>
-        m.clientMessageId === clientMessageId ? message : m,
-      )
-      return { messages: { ...(s.messages ?? {}), [roomId]: updated } }
+      const updated: Record<number, ChatMessage[]> = {}
+      for (const [rid, msgs] of Object.entries(s.messages ?? {})) {
+        updated[Number(rid)] = (Array.isArray(msgs) ? msgs : []).map((m) =>
+          m.pending && m.clientMessageId === clientMessageId
+            ? { ...m, pending: false, failed: true }
+            : m,
+        )
+      }
+      return { messages: updated }
     })
   },
 
