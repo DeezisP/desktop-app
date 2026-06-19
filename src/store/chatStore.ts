@@ -1,6 +1,18 @@
 import { create } from 'zustand'
 import type { ChatRoom, ChatMessage, OutboundMessage } from '../types/chat'
 
+// Single source of truth for message order, regardless of API/merge order.
+// `id` is the tiebreaker (not just sentAt) because it's the same auto-increment
+// column the backend's own queries order by — immune to same-millisecond ties
+// or LocalDateTime parsing quirks.
+function sortMessages(msgs: ChatMessage[]): ChatMessage[] {
+  return [...msgs].sort((a, b) => {
+    const ta = new Date(a.sentAt).getTime()
+    const tb = new Date(b.sentAt).getTime()
+    return ta !== tb ? ta - tb : a.id - b.id
+  })
+}
+
 interface ChatState {
   rooms: ChatRoom[]
   // roomId → messages sorted oldest-first
@@ -73,7 +85,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const existingIds = new Set(existing.map((m) => m.id))
       const deduped = safeMessages.filter((m) => !existingIds.has(m.id))
       return {
-        messages: { ...(s.messages ?? {}), [roomId]: [...deduped, ...existing] },
+        messages: { ...(s.messages ?? {}), [roomId]: sortMessages([...deduped, ...existing]) },
         cursors: { ...(s.cursors ?? {}), [roomId]: nextCursor },
         hasMore: { ...(s.hasMore ?? {}), [roomId]: hasMore },
       }
@@ -88,7 +100,7 @@ export const useChatStore = create<ChatState>((set) => ({
       if (existing.some((m) => m.id === message.id || m.clientMessageId === message.clientMessageId)) {
         return {}
       }
-      const updated = [...existing, message]
+      const updated = sortMessages([...existing, message])
       const rooms = (s.rooms ?? []).map((r) =>
         r.id === roomId
           ? { ...r, lastMessage: message.messageText, lastMessageAt: message.sentAt }

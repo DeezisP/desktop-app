@@ -94,11 +94,10 @@ export function useChat() {
         const raw = Array.isArray(result?.messages) ? result.messages : []
         const nextCursor = result?.nextCursor ?? null
         const hasMore = result?.hasMore ?? false
-        // API returns newest-first; reverse to oldest-first for display
-        const ordered = [...raw].reverse()
-        prependMessages(roomId, ordered, nextCursor, hasMore)
-        if (ordered.length > 0) {
-          const newest = ordered[ordered.length - 1]
+        // Backend already returns messages in ascending chronological order
+        prependMessages(roomId, raw, nextCursor, hasMore)
+        if (raw.length > 0) {
+          const newest = raw[raw.length - 1]
           if (
             !lastSeenMessageRef.current[roomId] ||
             newest.id > lastSeenMessageRef.current[roomId]

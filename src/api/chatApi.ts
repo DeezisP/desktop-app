@@ -11,7 +11,7 @@ export const chatApi = {
   getMessages(roomId: number, beforeId?: number, limit = 50): Promise<PagedMessageResponse> {
     return apiClient
       .get<PagedMessageResponse>(`/chat/rooms/${roomId}/messages`, {
-        params: { ...(beforeId !== undefined ? { beforeId } : {}), limit },
+        params: { ...(beforeId !== undefined ? { before: beforeId } : {}), limit },
       })
       .then((r) => ({
         messages: Array.isArray(r.data?.messages) ? r.data.messages : [],
